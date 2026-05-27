@@ -1,0 +1,167 @@
+services:
+
+  # ─── Banco de Dados ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: emails_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: emails_db
+      POSTGRES_USER: emails_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emails_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - emails-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emails_user -d emails_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Cache / Fila ────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: emails_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - emails-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Backend FastAPI ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emails_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_BACKEND: redis://redis:6379/1
+      ATTACHMENTS_BASE_PATH: /app/attachments
+      LOGS_BASE_PATH: /app/logs
+    volumes:
+      - attachments_data:/app/attachments
+      - logs_data:/app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - emails-network
+
+  # ─── Celery Worker ───────────────────────────────────────────────────────────
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emails_celery_worker
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q high,low --concurrency=2
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_BACKEND: redis://redis:6379/1
+      ATTACHMENTS_BASE_PATH: /app/attachments
+      LOGS_BASE_PATH: /app/logs
+    volumes:
+      - attachments_data:/app/attachments
+      - logs_data:/app/logs
+    depends_on:
+      - backend
+      - redis
+      - postgres
+    networks:
+      - emails-network
+
+  # ─── Celery Beat (Scheduler) ─────────────────────────────────────────────────
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emails_celery_beat
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - emails-network
+
+  # ─── Celery Flower (Monitoramento) ───────────────────────────────────────────
+  celery-flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emails_flower
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app flower --port=5555
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_BACKEND: redis://redis:6379/1
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - emails-network
+
+  # ─── Frontend Next.js ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: emails_frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - emails-network
+
+  # ─── Nginx Reverse Proxy ─────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: emails_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - emails-network
+
+networks:
+  emails-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  attachments_data:
+  logs_data:
