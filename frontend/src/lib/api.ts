@@ -64,3 +64,68 @@ export const triggerCheck = () => api.post("/settings/trigger-check").then((r) =
 
 export const fetchEmails = (params?: Record<string, string | number | boolean>) =>
   api.get("/emails", { params }).then((r) => r.data);
+
+export const fetchEmailDetail = (id: number) =>
+  api.get(`/emails/${id}`).then((r) => r.data);
+
+export const fetchEmailAttachments = (emailId: number) =>
+  api.get(`/emails/${emailId}/attachments`).then((r) => r.data);
+
+export const reclassifyEmail = (id: number) =>
+  api.post(`/emails/${id}/reclassify`).then((r) => r.data);
+
+export const updatePriority = (id: number, priority: string) =>
+  api.patch(`/emails/${id}/priority`, { priority }).then((r) => r.data);
+
+export interface AttachmentItem {
+  id: number;
+  email_id: number;
+  filename: string;
+  original_filename: string;
+  file_size: number;
+  file_size_human: string;
+  file_type: string;
+  saved_at: string | null;
+  has_ocr: boolean;
+  has_pdf_text: boolean;
+  has_ai_summary: boolean;
+  is_malicious: boolean;
+  email_subject: string | null;
+  email_sender: string | null;
+  email_priority: string | null;
+}
+
+export interface ProcessingLogItem {
+  id: number;
+  action: string;
+  success: boolean;
+  duration_ms: number | null;
+  timestamp: string;
+  error_type: string;
+  error_message: string;
+  details: Record<string, unknown> | null;
+}
+
+export const fetchAllNotifications = (limit = 100) =>
+  api.get(`/notifications?limit=${limit}`).then((r) => r.data);
+
+export const retryNotification = (id: number) =>
+  api.post(`/notifications/${id}/retry`).then((r) => r.data);
+
+export const sendManualNotification = (emailId: number, message: string) =>
+  api.post("/notifications/manual", { email_id: emailId, message }).then((r) => r.data);
+
+export const fetchAllAttachments = (params?: Record<string, number>) =>
+  api.get("/dashboard/attachments", { params }).then((r) => r.data);
+
+export const fetchProcessingLogs = (limit = 100) =>
+  api.get(`/dashboard/processing-logs?limit=${limit}`).then((r) => r.data);
+
+export const fetchSettings = () =>
+  api.get("/settings").then((r) => r.data);
+
+export const fetchKeywords = () =>
+  api.get("/settings/keywords").then((r) => r.data);
+
+export const triggerSummary = () =>
+  api.post("/settings/trigger-summary").then((r) => r.data);

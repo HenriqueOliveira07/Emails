@@ -148,6 +148,58 @@ async def get_processing_logs(
     ]
 
 
+@router.get("/attachments")
+async def list_attachments(
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Lista todos os anexos salvos com info do e-mail de origem."""
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(EmailAttachment)
+        .options(selectinload(EmailAttachment.email))
+        .order_by(EmailAttachment.saved_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    atts = result.scalars().all()
+
+    total = (await db.execute(select(func.count(EmailAttachment.id)))).scalar() or 0
+
+    items = []
+    for a in atts:
+        size_human = "0 B"
+        if a.file_size:
+            s = a.file_size
+            for unit in ["B", "KB", "MB", "GB"]:
+                if s < 1024:
+                    size_human = f"{s:.1f} {unit}"
+                    break
+                s /= 1024
+
+        items.append({
+            "id": a.id,
+            "email_id": a.email_id,
+            "filename": a.filename,
+            "original_filename": a.original_filename,
+            "file_size": a.file_size,
+            "file_size_human": size_human,
+            "file_type": a.file_type,
+            "saved_at": a.saved_at.isoformat() if a.saved_at else None,
+            "has_ocr": bool(a.ocr_text),
+            "has_pdf_text": bool(a.pdf_text),
+            "has_ai_summary": bool(a.ai_summary),
+            "is_malicious": a.is_malicious,
+            "email_subject": a.email.subject if a.email else None,
+            "email_sender": a.email.sender_email if a.email else None,
+            "email_priority": a.email.priority.value if a.email and a.email.priority else None,
+        })
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
 @router.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Verifica saúde de todas as integrações."""

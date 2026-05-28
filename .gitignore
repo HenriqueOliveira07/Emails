@@ -33,8 +33,10 @@ yarn-error.log*
 *.log
 
 # ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+/attachments/
+/app/attachments/
+/app/logs/
+# Exclui pastas de dados em volumes Docker (mas não páginas do frontend)
 *.sqlite3
 *.db
 
@@ -47,4 +49,4 @@ logs/
 Thumbs.db
 
 # ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py
+# (Migrações são versionadas)
