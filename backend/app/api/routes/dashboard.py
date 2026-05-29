@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy.orm import joinedload
+
 from app.db.database import get_db
 from app.models.email import EmailAttachment, EmailRecord, PriorityLevel
 from app.models.notification import NotificationLog, NotificationStatus, ProcessingLog
@@ -174,6 +176,51 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
         status["overall"] = "degraded"
 
     return status
+
+
+@router.get("/attachments")
+async def get_all_attachments(
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Lista todos os anexos salvos com contexto de e-mail."""
+    result = await db.execute(
+        select(EmailAttachment)
+        .options(joinedload(EmailAttachment.email))
+        .order_by(EmailAttachment.saved_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    attachments = result.scalars().all()
+
+    total = (await db.execute(select(func.count(EmailAttachment.id)))).scalar() or 0
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": a.id,
+                "email_id": a.email_id,
+                "filename": a.filename,
+                "original_filename": a.original_filename,
+                "file_path": a.file_path,
+                "file_size": a.file_size,
+                "file_type": a.file_type,
+                "saved_at": a.saved_at.isoformat() if a.saved_at else None,
+                "has_ocr": bool(a.ocr_text),
+                "has_pdf_text": bool(a.pdf_text),
+                "has_ai_summary": bool(a.ai_summary),
+                "invoice_data": a.invoice_data or {},
+                "is_malicious": a.is_malicious,
+                "sender_email": a.email.sender_email if a.email else None,
+                "subject": a.email.subject if a.email else None,
+            }
+            for a in attachments
+        ],
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 def _serialize_email(e: EmailRecord) -> Dict[str, Any]:

@@ -33,8 +33,10 @@ yarn-error.log*
 *.log
 
 # ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+/attachments/
+/logs/
+backend/attachments/
+backend/logs/
 *.sqlite3
 *.db
 
