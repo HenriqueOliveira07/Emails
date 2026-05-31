@@ -1,8 +1,7 @@
 """
-Classificação inteligente de e-mails usando Claude API.
+Classificação inteligente de e-mails usando Claude API com prompt caching.
 """
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 import anthropic
 import structlog
@@ -71,7 +70,7 @@ Responda sempre em português."""
 
 
 class AIClassifier:
-    """Classifica e-mails usando Claude API com structured output via tool_use."""
+    """Classifica e-mails usando Claude API com structured output via tool_use e prompt caching."""
 
     def __init__(self) -> None:
         self._client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -79,9 +78,7 @@ class AIClassifier:
     def classify_email(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Classifica um e-mail e retorna prioridade, categoria e resumo.
-
-        Returns:
-            Dict com priority, category, summary, keywords_found, is_spam, action_required
+        Usa prompt caching no system prompt e nas definições de ferramentas para reduzir custos.
         """
         subject = email_data.get("subject", "(Sem assunto)")
         sender = email_data.get("sender_email", "")
@@ -91,24 +88,32 @@ class AIClassifier:
         has_attachments = email_data.get("has_attachments", False)
         importance = email_data.get("importance", "normal")
 
-        user_message = f"""E-mail para classificar:
-
-Remetente: {sender_name} <{sender}>
-Assunto: {subject}
-Importância (sistema): {importance}
-Possui anexos: {"Sim" if has_attachments else "Não"}
-
-Corpo:
-{body_trimmed}
-
-Classifique este e-mail."""
+        user_message = (
+            f"E-mail para classificar:\n\n"
+            f"Remetente: {sender_name} <{sender}>\n"
+            f"Assunto: {subject}\n"
+            f"Importância (sistema): {importance}\n"
+            f"Possui anexos: {'Sim' if has_attachments else 'Não'}\n\n"
+            f"Corpo:\n{body_trimmed}\n\nClassifique este e-mail."
+        )
 
         try:
             response = self._client.messages.create(
                 model=settings.CLAUDE_MODEL,
                 max_tokens=settings.CLAUDE_MAX_TOKENS,
-                system=SYSTEM_PROMPT,
-                tools=[CLASSIFICATION_TOOL],
+                system=[
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                tools=[
+                    {
+                        **CLASSIFICATION_TOOL,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 tool_choice={"type": "any"},
                 messages=[{"role": "user", "content": user_message}],
             )
@@ -116,12 +121,14 @@ Classifique este e-mail."""
             for block in response.content:
                 if block.type == "tool_use" and block.name == "classificar_email":
                     result = block.input
+                    cache_read = getattr(response.usage, "cache_read_input_tokens", 0)
                     logger.info(
                         "email_classified",
                         sender=sender,
                         subject=subject[:60],
                         priority=result.get("priority"),
                         is_spam=result.get("is_spam"),
+                        cache_read_tokens=cache_read,
                     )
                     return result
 
@@ -180,7 +187,7 @@ Classifique este e-mail."""
         }
 
     def summarize_pdf(self, pdf_text: str) -> str:
-        """Gera um resumo de texto extraído de PDF."""
+        """Gera um resumo de texto extraído de PDF com prompt caching."""
         if not pdf_text or len(pdf_text) < 50:
             return ""
         trimmed = pdf_text[:4000]

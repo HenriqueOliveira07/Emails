@@ -111,32 +111,56 @@ docker compose logs -f celery-worker
 | Backend | 8000 | API FastAPI |
 | Flower | 5555 | Monitor Celery |
 
-## Dashboard
+## Dashboard e Páginas
 
 Acesse `http://localhost` após iniciar os serviços.
 
-**Funcionalidades:**
+| Página | URL | Descrição |
+|--------|-----|-----------|
+| Dashboard | `/dashboard` | Visão geral com stats, gráfico e tabela de e-mails |
+| E-mails | `/emails` | Lista com filtros por prioridade, remetente, anexos; re-classificação com IA |
+| Notificações | `/notifications` | Histórico WhatsApp com reenvio de falhas |
+| Anexos | `/attachments` | Browser de arquivos com info OCR/PDF/IA |
+| Logs | `/logs` | Auditoria de todos os eventos de processamento |
+| Configurações | `/settings` | Status das integrações e ações manuais |
+
+**Funcionalidades do Dashboard:**
 - Estatísticas em tempo real (atualização a cada 30s)
 - Gráfico de distribuição por prioridade
 - Tabela de e-mails com detalhes expandíveis
 - Log de notificações WhatsApp enviadas
-- Indicador de status das integrações
+- Indicador de status das integrações (PostgreSQL, Redis)
 - Botão "Verificar Agora" para disparo manual
 
 ## API REST
 
-Documentação completa: `http://localhost:8000/api/docs`
-
-Principais endpoints:
+Documentação interativa Swagger: `http://localhost:8000/api/docs`
 
 ```
-GET  /api/dashboard/stats          # Estatísticas do dia
-GET  /api/dashboard/recent-emails  # E-mails recentes
-GET  /api/emails                   # Lista com filtros
-POST /api/emails/{id}/reclassify   # Re-classificar com IA
-GET  /api/dashboard/health         # Status das integrações
-POST /api/settings/trigger-check   # Disparar verificação manual
-POST /api/settings/trigger-summary # Enviar resumo diário
+# Dashboard
+GET  /api/dashboard/stats            # Estatísticas do dia
+GET  /api/dashboard/recent-emails    # E-mails recentes
+GET  /api/dashboard/notifications    # Histórico de notificações
+GET  /api/dashboard/health           # Status PostgreSQL + Redis
+GET  /api/dashboard/processing-logs  # Logs de auditoria
+
+# E-mails
+GET    /api/emails                   # Listar (filtros: priority, sender, has_attachments)
+GET    /api/emails/{id}              # Detalhes completos + corpo
+POST   /api/emails/{id}/reclassify   # Re-classificar com Claude AI
+PATCH  /api/emails/{id}/priority     # Alterar prioridade manualmente
+GET    /api/emails/{id}/attachments  # Listar anexos do e-mail
+
+# Notificações
+GET  /api/notifications              # Histórico completo
+POST /api/notifications/manual       # Enviar mensagem WhatsApp manual
+POST /api/notifications/{id}/retry   # Reenviar notificação que falhou
+
+# Configurações
+GET  /api/settings                   # Config atual (sem credenciais)
+GET  /api/settings/keywords          # Palavras-chave de prioridade
+POST /api/settings/trigger-check     # Disparar verificação manual
+POST /api/settings/trigger-summary   # Enviar resumo diário
 ```
 
 ## Organização de Anexos
