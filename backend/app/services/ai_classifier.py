@@ -1,5 +1,5 @@
 """
-Classificação inteligente de e-mails usando Claude API.
+Classificação inteligente de e-mails usando Claude API com prompt caching.
 """
 import json
 from typing import Any, Dict, List, Optional
@@ -52,6 +52,7 @@ CLASSIFICATION_TOOL = {
     },
 }
 
+# System prompt estático — cacheado automaticamente pelo Claude (min_tokens >= 1024)
 SYSTEM_PROMPT = """Você é um assistente especializado em classificar e-mails corporativos brasileiros.
 
 REGRAS DE PRIORIDADE:
@@ -66,12 +67,30 @@ SPAM/IGNORAR:
 - Promoções e ofertas comerciais
 - E-mails de noreply sem conteúdo acionável
 
+EXEMPLOS DE PALAVRAS-CHAVE CRÍTICAS:
+urgente, urgentíssimo, emergência, crítico, parada, sistema fora, produção parada, SOS, imediato,
+hoje impreterivelmente, prazo vencendo, vencimento hoje, parado, falha crítica
+
+EXEMPLOS DE PALAVRAS-CHAVE ALTO:
+aprovação, contrato, assinatura, pagamento, fatura, boleto, nota fiscal, NF-e, proposta, licitação,
+prazo, deadline, reunião importante, decisão, autorização, diretoria, presidente, CEO, CFO
+
+EXEMPLOS DE PALAVRAS-CHAVE MÉDIO:
+fornecedor, cliente, pendência, atualização, relatório, solicitação, orçamento, pedido, entrega,
+suporte, manutenção
+
+CONTEXTO CORPORATIVO BRASILEIRO:
+- Leve em conta horários de trabalho (e-mails fora do horário comercial podem ser mais urgentes)
+- Remetentes de domínios corporativos têm maior peso que e-mails pessoais
+- E-mails com anexos financeiros (boleto, NF, contrato) sempre têm prioridade alta ou crítica
+- Considere recorrência: assuntos com "RE:" ou "FWD:" repetidos podem indicar urgência acumulada
+
 Analise o e-mail fornecido e classifique seguindo estritamente as regras acima.
-Responda sempre em português."""
+Responda sempre em português brasileiro."""
 
 
 class AIClassifier:
-    """Classifica e-mails usando Claude API com structured output via tool_use."""
+    """Classifica e-mails usando Claude API com structured output via tool_use e prompt caching."""
 
     def __init__(self) -> None:
         self._client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -79,6 +98,9 @@ class AIClassifier:
     def classify_email(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Classifica um e-mail e retorna prioridade, categoria e resumo.
+
+        Usa prompt caching: o system prompt estático é cacheado após o primeiro uso,
+        reduzindo custo em ~90% para chamadas subsequentes.
 
         Returns:
             Dict com priority, category, summary, keywords_found, is_spam, action_required
@@ -107,11 +129,20 @@ Classifique este e-mail."""
             response = self._client.messages.create(
                 model=settings.CLAUDE_MODEL,
                 max_tokens=settings.CLAUDE_MAX_TOKENS,
-                system=SYSTEM_PROMPT,
+                system=[
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 tools=[CLASSIFICATION_TOOL],
                 tool_choice={"type": "any"},
                 messages=[{"role": "user", "content": user_message}],
             )
+
+            cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+            cache_write = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
 
             for block in response.content:
                 if block.type == "tool_use" and block.name == "classificar_email":
@@ -122,6 +153,8 @@ Classifique este e-mail."""
                         subject=subject[:60],
                         priority=result.get("priority"),
                         is_spam=result.get("is_spam"),
+                        cache_read_tokens=cache_read,
+                        cache_write_tokens=cache_write,
                     )
                     return result
 
@@ -180,7 +213,7 @@ Classifique este e-mail."""
         }
 
     def summarize_pdf(self, pdf_text: str) -> str:
-        """Gera um resumo de texto extraído de PDF."""
+        """Gera um resumo de texto extraído de PDF com prompt caching."""
         if not pdf_text or len(pdf_text) < 50:
             return ""
         trimmed = pdf_text[:4000]
@@ -188,6 +221,13 @@ Classifique este e-mail."""
             response = self._client.messages.create(
                 model=settings.CLAUDE_MODEL,
                 max_tokens=512,
+                system=[
+                    {
+                        "type": "text",
+                        "text": "Você é um assistente especializado em resumir documentos corporativos brasileiros. Seja objetivo e conciso.",
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 messages=[{
                     "role": "user",
                     "content": (
@@ -237,3 +277,80 @@ Classifique este e-mail."""
         except anthropic.APIError:
             pass
         return {}
+
+    def batch_classify(self, emails: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        """
+        Classifica múltiplos e-mails em lote usando Message Batches API.
+        Reduz custo em até 50% comparado a chamadas individuais.
+        Retorna lista de resultados na mesma ordem de entrada.
+        """
+        if not emails:
+            return []
+
+        requests = []
+        for i, email_data in enumerate(emails):
+            subject = email_data.get("subject", "(Sem assunto)")
+            sender = email_data.get("sender_email", "")
+            sender_name = email_data.get("sender_name", "")
+            body = (email_data.get("body_preview", "") or email_data.get("full_body", ""))[:3000]
+            has_attachments = email_data.get("has_attachments", False)
+            importance = email_data.get("importance", "normal")
+
+            requests.append(
+                anthropic.types.message_create_params.Request(
+                    custom_id=str(i),
+                    params=anthropic.types.MessageCreateParamsNonStreaming(
+                        model=settings.CLAUDE_MODEL,
+                        max_tokens=settings.CLAUDE_MAX_TOKENS,
+                        system=[
+                            {
+                                "type": "text",
+                                "text": SYSTEM_PROMPT,
+                                "cache_control": {"type": "ephemeral"},
+                            }
+                        ],
+                        tools=[CLASSIFICATION_TOOL],
+                        tool_choice={"type": "any"},
+                        messages=[{
+                            "role": "user",
+                            "content": (
+                                f"Remetente: {sender_name} <{sender}>\n"
+                                f"Assunto: {subject}\n"
+                                f"Importância: {importance}\n"
+                                f"Anexos: {'Sim' if has_attachments else 'Não'}\n\n"
+                                f"Corpo:\n{body}\n\nClassifique este e-mail."
+                            ),
+                        }],
+                    ),
+                )
+            )
+
+        try:
+            batch = self._client.messages.batches.create(requests=requests)
+            import time
+            for _ in range(60):
+                batch = self._client.messages.batches.retrieve(batch.id)
+                if batch.processing_status == "ended":
+                    break
+                time.sleep(10)
+
+            results: Dict[str, Any] = {}
+            for result in self._client.messages.batches.results(batch.id):
+                if result.result.type == "succeeded":
+                    for block in result.result.message.content:
+                        if block.type == "tool_use" and block.name == "classificar_email":
+                            results[result.custom_id] = block.input
+                            break
+                    else:
+                        results[result.custom_id] = None
+                else:
+                    results[result.custom_id] = None
+
+            return [
+                results.get(str(i)) or self._fallback_classification(emails[i])
+                for i in range(len(emails))
+            ]
+
+        except Exception as e:
+            logger.error("batch_classify_failed", error=str(e))
+            return [self._fallback_classification(e) for e in emails]

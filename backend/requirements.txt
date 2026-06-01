@@ -2,10 +2,14 @@ fastapi==0.111.0
 uvicorn[standard]==0.29.0
 sqlalchemy==2.0.30
 alembic==1.13.1
+asyncpg==0.29.0
 psycopg2-binary==2.9.9
+greenlet==3.0.3
 redis==5.0.4
 celery==5.4.0
-anthropic==0.28.0
+celery[redis]==5.4.0
+flower==2.0.1
+anthropic==0.40.0
 msal==1.28.0
 exchangelib==5.4.0
 python-multipart==0.0.9
@@ -19,7 +23,5 @@ pypdf2==3.0.1
 pydantic-settings==2.2.1
 cryptography==42.0.7
 python-dotenv==1.0.1
-celery[redis]==5.4.0
-flower==2.0.1
 structlog==24.1.0
 sentry-sdk[fastapi]==2.3.1

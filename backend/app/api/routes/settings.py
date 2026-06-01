@@ -68,3 +68,16 @@ async def trigger_daily_summary() -> Dict[str, Any]:
     from app.workers.tasks import send_daily_summary
     task = send_daily_summary.delay()
     return {"task_id": task.id, "status": "queued", "message": "Resumo diário iniciado"}
+
+
+@router.get("/scheduler-status")
+async def scheduler_status() -> Dict[str, Any]:
+    """Status do scheduler de background (quando rodando sem Celery)."""
+    from app.services.scheduler import is_running, get_last_run, get_cycle_count
+    last_run = get_last_run()
+    return {
+        "running": is_running(),
+        "last_run": last_run.isoformat() if last_run else None,
+        "cycle_count": get_cycle_count(),
+        "check_interval_seconds": settings.CHECK_INTERVAL_SECONDS,
+    }

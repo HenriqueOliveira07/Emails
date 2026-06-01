@@ -268,6 +268,19 @@ class Settings(BaseSettings):
     ]
 
     # -------------------------------------------------------------------------
+    # IMAP (fallback ao Graph API)
+    # -------------------------------------------------------------------------
+    IMAP_HOST: str = Field(default="", description="Host IMAP (ex: imap.gmail.com)")
+    IMAP_PORT: int = Field(default=993, description="Porta IMAP (padrão SSL: 993)")
+    IMAP_USERNAME: str = Field(default="", description="Usuário IMAP")
+    IMAP_PASSWORD: str = Field(default="", description="Senha IMAP ou App Password")
+    IMAP_USE_SSL: bool = Field(default=True, description="Usar SSL/TLS")
+    USE_IMAP_FALLBACK: bool = Field(
+        default=False,
+        description="Usar IMAP quando Graph API não estiver configurado",
+    )
+
+    # -------------------------------------------------------------------------
     # CORS
     # -------------------------------------------------------------------------
     CORS_ORIGINS: List[str] = [
