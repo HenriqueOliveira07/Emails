@@ -35,6 +35,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── Migração Alembic ───────────────────────────────────────────────────────
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emails_migrate
+    command: alembic upgrade head
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emails-network
+    restart: "no"
+
   # ─── Backend FastAPI ──────────────────────────────────────────────────────────
   backend:
     build:

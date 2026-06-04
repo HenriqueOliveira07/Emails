@@ -64,3 +64,12 @@ export const triggerCheck = () => api.post("/settings/trigger-check").then((r) =
 
 export const fetchEmails = (params?: Record<string, string | number | boolean>) =>
   api.get("/emails", { params }).then((r) => r.data);
+
+export interface HistoryPoint {
+  date: string;
+  total: number;
+  critical: number;
+}
+
+export const fetchHistory = (days = 7): Promise<HistoryPoint[]> =>
+  api.get(`/dashboard/history?days=${days}`).then((r) => r.data);

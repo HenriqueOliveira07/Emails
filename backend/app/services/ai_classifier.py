@@ -107,8 +107,16 @@ Classifique este e-mail."""
             response = self._client.messages.create(
                 model=settings.CLAUDE_MODEL,
                 max_tokens=settings.CLAUDE_MAX_TOKENS,
-                system=SYSTEM_PROMPT,
-                tools=[CLASSIFICATION_TOOL],
+                system=[
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                tools=[
+                    {**CLASSIFICATION_TOOL, "cache_control": {"type": "ephemeral"}}
+                ],
                 tool_choice={"type": "any"},
                 messages=[{"role": "user", "content": user_message}],
             )

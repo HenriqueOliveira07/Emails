@@ -14,10 +14,19 @@ from app.db.database import create_tables
 
 logger = structlog.get_logger(__name__)
 
+if settings.SENTRY_DSN:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        traces_sample_rate=0.1,
+        environment=settings.ENVIRONMENT,
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Iniciando sistema de monitoramento de e-mails...")
+    logger.info("Iniciando sistema de monitoramento de e-mails...",
+                version=settings.APP_VERSION, env=settings.ENVIRONMENT)
     await create_tables()
     logger.info("Tabelas criadas/verificadas com sucesso")
     yield

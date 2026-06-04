@@ -148,6 +148,45 @@ async def get_processing_logs(
     ]
 
 
+@router.get("/history")
+async def get_history(
+    days: int = 7, db: AsyncSession = Depends(get_db)
+) -> List[Dict[str, Any]]:
+    """Histórico diário de e-mails dos últimos N dias."""
+    from datetime import timedelta
+
+    result = []
+    today = date.today()
+    for i in range(days - 1, -1, -1):
+        day = today - timedelta(days=i)
+        day_start = datetime.combine(day, datetime.min.time()).replace(tzinfo=timezone.utc)
+        day_end = datetime.combine(day + timedelta(days=1), datetime.min.time()).replace(tzinfo=timezone.utc)
+
+        total = (await db.execute(
+            select(func.count(EmailRecord.id)).where(
+                EmailRecord.processed_at >= day_start,
+                EmailRecord.processed_at < day_end,
+            )
+        )).scalar() or 0
+
+        critical = (await db.execute(
+            select(func.count(EmailRecord.id)).where(
+                EmailRecord.processed_at >= day_start,
+                EmailRecord.processed_at < day_end,
+                EmailRecord.priority == PriorityLevel.CRITICAL,
+                EmailRecord.is_spam == False,  # noqa: E712
+            )
+        )).scalar() or 0
+
+        result.append({
+            "date": day.isoformat(),
+            "total": total,
+            "critical": critical,
+        })
+
+    return result
+
+
 @router.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Verifica saúde de todas as integrações."""
@@ -164,14 +203,32 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     # Redis
     try:
         import redis as redis_lib
-        r = redis_lib.from_url(
-            __import__("app.config", fromlist=["settings"]).settings.REDIS_URL
-        )
+        from app.config import settings as cfg
+        r = redis_lib.from_url(cfg.REDIS_URL)
         r.ping()
         status["services"]["redis"] = {"status": "ok"}
     except Exception as e:
         status["services"]["redis"] = {"status": "error", "error": str(e)}
         status["overall"] = "degraded"
+
+    # Outlook / Graph API (apenas verifica se credenciais estão presentes)
+    from app.config import settings as cfg
+    if cfg.OUTLOOK_CLIENT_ID and cfg.OUTLOOK_CLIENT_SECRET and cfg.OUTLOOK_TENANT_ID:
+        status["services"]["outlook"] = {"status": "ok"}
+    else:
+        status["services"]["outlook"] = {"status": "not_configured"}
+
+    # WhatsApp
+    if cfg.WHATSAPP_TO_NUMBER:
+        status["services"]["whatsapp"] = {"status": "ok", "provider": cfg.WHATSAPP_PROVIDER}
+    else:
+        status["services"]["whatsapp"] = {"status": "not_configured"}
+
+    # Claude
+    if cfg.ANTHROPIC_API_KEY:
+        status["services"]["claude"] = {"status": "ok", "model": cfg.CLAUDE_MODEL}
+    else:
+        status["services"]["claude"] = {"status": "not_configured"}
 
     return status
 

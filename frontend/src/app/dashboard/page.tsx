@@ -1,11 +1,12 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import {
-  fetchStats, fetchRecentEmails, fetchNotifications,
+  fetchStats, fetchRecentEmails, fetchNotifications, fetchHistory,
   DashboardStats,
 } from "@/lib/api";
 import { StatsCard } from "@/components/Dashboard/StatsCard";
 import { PriorityChart } from "@/components/Dashboard/PriorityChart";
+import { HistoryChart } from "@/components/Dashboard/HistoryChart";
 import { EmailTable } from "@/components/Dashboard/EmailTable";
 import { NotificationLog } from "@/components/Dashboard/NotificationLog";
 import { Sidebar } from "@/components/Layout/Sidebar";
@@ -31,6 +32,12 @@ export default function DashboardPage() {
     queryKey: ["notifications"],
     queryFn: () => fetchNotifications(20),
     refetchInterval: 30_000,
+  });
+
+  const { data: history } = useQuery({
+    queryKey: ["history"],
+    queryFn: () => fetchHistory(7),
+    refetchInterval: 300_000,
   });
 
   return (
@@ -102,6 +109,9 @@ export default function DashboardPage() {
             <PriorityChart data={stats?.by_priority ?? {}} />
             <NotificationLog notifications={notifications ?? []} />
           </div>
+
+          {/* History Chart */}
+          <HistoryChart data={history ?? []} />
 
           {/* Email Table */}
           {loadingEmails ? (

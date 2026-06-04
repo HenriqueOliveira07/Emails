@@ -149,11 +149,21 @@ class AttachmentHandler:
             ocr_text = ""
             pdf_text = ""
             invoice_data: Dict = {}
+            ai_summary = ""
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
+                if pdf_text:
+                    from app.services.ai_classifier import AIClassifier
+                    clf = AIClassifier()
+                    ai_summary = clf.summarize_pdf(pdf_text)
+                    invoice_data = clf.extract_invoice_data(pdf_text)
             elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
                 ocr_text = self._ocr_image(file_path)
+                if ocr_text:
+                    from app.services.ai_classifier import AIClassifier
+                    clf = AIClassifier()
+                    invoice_data = clf.extract_invoice_data(ocr_text)
 
             logger.info(
                 "attachment_saved",
@@ -170,6 +180,7 @@ class AttachmentHandler:
                 "file_type": mime_type,
                 "ocr_text": ocr_text,
                 "pdf_text": pdf_text,
+                "ai_summary": ai_summary,
                 "invoice_data": invoice_data,
                 "is_malicious": False,
             })

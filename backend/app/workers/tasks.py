@@ -159,6 +159,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         file_type=att["file_type"],
                         ocr_text=att.get("ocr_text", ""),
                         pdf_text=att.get("pdf_text", ""),
+                        ai_summary=att.get("ai_summary", ""),
                         invoice_data=att.get("invoice_data", {}),
                     )
                     db.add(att_record)

@@ -115,12 +115,24 @@ docker compose logs -f celery-worker
 
 Acesse `http://localhost` após iniciar os serviços.
 
-**Funcionalidades:**
+**Páginas disponíveis:**
+
+| Página | URL | Descrição |
+|--------|-----|-----------|
+| Dashboard | `/dashboard` | Visão geral com stats e gráficos |
+| E-mails | `/emails` | Lista completa com filtros |
+| Notificações | `/notifications` | Histórico WhatsApp + envio manual |
+| Anexos | `/attachments` | Todos os arquivos salvos |
+| Logs | `/logs` | Eventos de processamento |
+| Configurações | `/settings` | Status e controles do sistema |
+
+**Funcionalidades do Dashboard:**
 - Estatísticas em tempo real (atualização a cada 30s)
-- Gráfico de distribuição por prioridade
-- Tabela de e-mails com detalhes expandíveis
+- Gráfico de distribuição por prioridade (pizza)
+- Gráfico de histórico 7 dias (barras)
+- Tabela de e-mails com resumo IA expandível
 - Log de notificações WhatsApp enviadas
-- Indicador de status das integrações
+- Indicador de status de todos os serviços
 - Botão "Verificar Agora" para disparo manual
 
 ## API REST
@@ -130,13 +142,21 @@ Documentação completa: `http://localhost:8000/api/docs`
 Principais endpoints:
 
 ```
-GET  /api/dashboard/stats          # Estatísticas do dia
-GET  /api/dashboard/recent-emails  # E-mails recentes
-GET  /api/emails                   # Lista com filtros
-POST /api/emails/{id}/reclassify   # Re-classificar com IA
-GET  /api/dashboard/health         # Status das integrações
-POST /api/settings/trigger-check   # Disparar verificação manual
-POST /api/settings/trigger-summary # Enviar resumo diário
+GET  /api/dashboard/stats              # Estatísticas do dia
+GET  /api/dashboard/recent-emails      # E-mails recentes
+GET  /api/dashboard/history?days=7     # Histórico dos últimos N dias
+GET  /api/dashboard/health             # Status de todos os serviços
+GET  /api/dashboard/processing-logs    # Logs de processamento
+GET  /api/emails                       # Lista com filtros (priority, sender, has_attachments)
+GET  /api/emails/{id}                  # Detalhes + corpo completo
+GET  /api/emails/{id}/attachments      # Anexos do e-mail
+POST /api/emails/{id}/reclassify       # Re-classificar com IA
+PATCH /api/emails/{id}/priority        # Atualizar prioridade manualmente
+GET  /api/notifications                # Histórico de notificações
+POST /api/notifications/manual         # Enviar WhatsApp manual
+POST /api/notifications/{id}/retry     # Reenviar notificação falha
+POST /api/settings/trigger-check       # Disparar verificação manual
+POST /api/settings/trigger-summary     # Enviar resumo diário
 ```
 
 ## Organização de Anexos
