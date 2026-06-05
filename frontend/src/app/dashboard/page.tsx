@@ -8,6 +8,7 @@ import { StatsCard } from "@/components/Dashboard/StatsCard";
 import { PriorityChart } from "@/components/Dashboard/PriorityChart";
 import { EmailTable } from "@/components/Dashboard/EmailTable";
 import { NotificationLog } from "@/components/Dashboard/NotificationLog";
+import { HistoryChart } from "@/components/Dashboard/HistoryChart";
 import { Sidebar } from "@/components/Layout/Sidebar";
 import { Header } from "@/components/Layout/Header";
 import {
@@ -15,7 +16,7 @@ import {
 } from "lucide-react";
 
 export default function DashboardPage() {
-  const { data: stats, isLoading: loadingStats } = useQuery<DashboardStats>({
+  const { data: stats } = useQuery<DashboardStats>({
     queryKey: ["stats"],
     queryFn: fetchStats,
     refetchInterval: 30_000,
@@ -39,7 +40,8 @@ export default function DashboardPage() {
       <div className="flex-1 flex flex-col">
         <Header title="Dashboard" />
         <main className="flex-1 p-6 space-y-6 overflow-y-auto">
-          {/* Stats Grid */}
+
+          {/* Stats Row 1 */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatsCard
               title="E-mails Hoje"
@@ -70,6 +72,7 @@ export default function DashboardPage() {
             />
           </div>
 
+          {/* Stats Row 2 */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatsCard
               title="Alto"
@@ -97,18 +100,27 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Chart + Notifications */}
-          <div className="grid lg:grid-cols-2 gap-6">
+          {/* Charts Row */}
+          <div className="grid lg:grid-cols-3 gap-4">
             <PriorityChart data={stats?.by_priority ?? {}} />
-            <NotificationLog notifications={notifications ?? []} />
+            <div className="lg:col-span-2">
+              <HistoryChart />
+            </div>
           </div>
 
-          {/* Email Table */}
-          {loadingEmails ? (
-            <div className="text-center text-slate-400 py-8">Carregando e-mails...</div>
-          ) : (
-            <EmailTable emails={emailsData?.items ?? []} />
-          )}
+          {/* Notifications + Table */}
+          <div className="grid lg:grid-cols-3 gap-4">
+            <NotificationLog notifications={notifications ?? []} />
+            <div className="lg:col-span-2">
+              {loadingEmails ? (
+                <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center text-slate-400">
+                  Carregando e-mails...
+                </div>
+              ) : (
+                <EmailTable emails={emailsData?.items ?? []} />
+              )}
+            </div>
+          </div>
         </main>
       </div>
     </div>

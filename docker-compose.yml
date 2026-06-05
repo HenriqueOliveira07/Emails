@@ -24,7 +24,7 @@ services:
     image: redis:7-alpine
     container_name: emails_redis
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     networks:
@@ -34,6 +34,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ─── Migrations (roda uma vez e encerra) ─────────────────────────────────────
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emails_migrate
+    command: alembic upgrade head
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emails-network
+    restart: "no"
 
   # ─── Backend FastAPI ──────────────────────────────────────────────────────────
   backend:
@@ -59,8 +76,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - emails-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   # ─── Celery Worker ───────────────────────────────────────────────────────────
   celery-worker:
@@ -81,9 +106,8 @@ services:
       - attachments_data:/app/attachments
       - logs_data:/app/logs
     depends_on:
-      - backend
-      - redis
-      - postgres
+      backend:
+        condition: service_healthy
     networks:
       - emails-network
 
@@ -94,7 +118,7 @@ services:
       dockerfile: Dockerfile
     container_name: emails_celery_beat
     restart: unless-stopped
-    command: celery -A app.workers.celery_app beat --loglevel=info
+    command: celery -A app.workers.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
@@ -106,14 +130,14 @@ services:
     networks:
       - emails-network
 
-  # ─── Celery Flower (Monitoramento) ───────────────────────────────────────────
+  # ─── Celery Flower (Monitoramento de Tarefas) ────────────────────────────────
   celery-flower:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: emails_flower
     restart: unless-stopped
-    command: celery -A app.workers.celery_app flower --port=5555
+    command: celery -A app.workers.celery_app flower --port=5555 --basic-auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin123}
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
@@ -134,10 +158,9 @@ services:
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ""
-    ports:
-      - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - emails-network
 

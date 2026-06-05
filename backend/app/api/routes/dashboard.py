@@ -1,10 +1,10 @@
 """
 Endpoints do painel de controle principal.
 """
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -113,15 +113,76 @@ async def get_notifications(
     return [
         {
             "id": n.id,
+            "email_id": n.email_id,
             "channel": n.channel.value if n.channel else "whatsapp",
             "recipient": n.recipient,
+            "message_body": n.message_body[:200] + "..." if len(n.message_body) > 200 else n.message_body,
             "status": n.status.value if n.status else "pendente",
             "sent_at": n.sent_at.isoformat() if n.sent_at else None,
             "error_message": n.error_message,
             "retry_count": n.retry_count,
+            "external_id": n.external_id,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
         }
         for n in logs
     ]
+
+
+@router.get("/stats/history")
+async def get_stats_history(
+    days: int = Query(default=7, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """Histórico de estatísticas por dia (últimos N dias)."""
+    history = []
+    today = date.today()
+    for i in range(days - 1, -1, -1):
+        day = today - timedelta(days=i)
+        day_start = datetime.combine(day, datetime.min.time()).replace(tzinfo=timezone.utc)
+        day_end = datetime.combine(day, datetime.max.time()).replace(tzinfo=timezone.utc)
+
+        total = (await db.execute(
+            select(func.count(EmailRecord.id)).where(
+                EmailRecord.processed_at >= day_start,
+                EmailRecord.processed_at <= day_end,
+                EmailRecord.is_spam == False,  # noqa: E712
+            )
+        )).scalar() or 0
+
+        critical = (await db.execute(
+            select(func.count(EmailRecord.id)).where(
+                EmailRecord.processed_at >= day_start,
+                EmailRecord.processed_at <= day_end,
+                EmailRecord.priority == PriorityLevel.CRITICAL,
+            )
+        )).scalar() or 0
+
+        high = (await db.execute(
+            select(func.count(EmailRecord.id)).where(
+                EmailRecord.processed_at >= day_start,
+                EmailRecord.processed_at <= day_end,
+                EmailRecord.priority == PriorityLevel.HIGH,
+            )
+        )).scalar() or 0
+
+        notifications = (await db.execute(
+            select(func.count(NotificationLog.id)).where(
+                NotificationLog.created_at >= day_start,
+                NotificationLog.created_at <= day_end,
+                NotificationLog.status == NotificationStatus.SENT,
+            )
+        )).scalar() or 0
+
+        history.append({
+            "date": day.isoformat(),
+            "label": day.strftime("%d/%m"),
+            "total": total,
+            "critical": critical,
+            "high": high,
+            "notifications": notifications,
+        })
+
+    return history
 
 
 @router.get("/processing-logs")
@@ -151,6 +212,8 @@ async def get_processing_logs(
 @router.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Verifica saúde de todas as integrações."""
+    from app.config import settings
+
     status: Dict[str, Any] = {"overall": "ok", "services": {}}
 
     # PostgreSQL
@@ -164,14 +227,40 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     # Redis
     try:
         import redis as redis_lib
-        r = redis_lib.from_url(
-            __import__("app.config", fromlist=["settings"]).settings.REDIS_URL
-        )
+        r = redis_lib.from_url(settings.REDIS_URL)
         r.ping()
         status["services"]["redis"] = {"status": "ok"}
     except Exception as e:
         status["services"]["redis"] = {"status": "error", "error": str(e)}
         status["overall"] = "degraded"
+
+    # Outlook (configurado?)
+    if settings.OUTLOOK_CLIENT_ID and settings.OUTLOOK_CLIENT_SECRET:
+        status["services"]["outlook"] = {"status": "ok", "note": "credenciais configuradas"}
+    else:
+        status["services"]["outlook"] = {"status": "warning", "error": "credenciais não configuradas"}
+        if status["overall"] == "ok":
+            status["overall"] = "degraded"
+
+    # Claude API (configurado?)
+    if settings.ANTHROPIC_API_KEY:
+        status["services"]["claude_ai"] = {"status": "ok", "model": settings.CLAUDE_MODEL}
+    else:
+        status["services"]["claude_ai"] = {"status": "warning", "error": "API key não configurada"}
+        if status["overall"] == "ok":
+            status["overall"] = "degraded"
+
+    # WhatsApp (configurado?)
+    wa_ok = bool(settings.WHATSAPP_TO_NUMBER) and (
+        (settings.WHATSAPP_PROVIDER == "twilio" and settings.TWILIO_ACCOUNT_SID)
+        or (settings.WHATSAPP_PROVIDER == "meta" and settings.META_WHATSAPP_ACCESS_TOKEN)
+    )
+    if wa_ok:
+        status["services"]["whatsapp"] = {"status": "ok", "provider": settings.WHATSAPP_PROVIDER}
+    else:
+        status["services"]["whatsapp"] = {"status": "warning", "error": "credenciais não configuradas"}
+        if status["overall"] == "ok":
+            status["overall"] = "degraded"
 
     return status
 
