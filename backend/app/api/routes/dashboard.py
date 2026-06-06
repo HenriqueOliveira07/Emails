@@ -173,6 +173,29 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
         status["services"]["redis"] = {"status": "error", "error": str(e)}
         status["overall"] = "degraded"
 
+    # Celery
+    try:
+        from app.workers.celery_app import celery_app
+        inspect = celery_app.control.inspect(timeout=2.0)
+        active = inspect.active()
+        status["services"]["celery"] = {
+            "status": "ok" if active is not None else "no_workers",
+            "workers": len(active) if active else 0,
+        }
+        if active is None:
+            status["overall"] = "degraded"
+    except Exception as e:
+        status["services"]["celery"] = {"status": "error", "error": str(e)}
+        status["overall"] = "degraded"
+
+    # Integrations configured
+    from app.config import settings as app_settings
+    status["integrations"] = {
+        "outlook": bool(app_settings.OUTLOOK_CLIENT_ID and app_settings.OUTLOOK_CLIENT_SECRET),
+        "whatsapp": bool(app_settings.WHATSAPP_TO_NUMBER),
+        "claude": bool(app_settings.ANTHROPIC_API_KEY),
+    }
+
     return status
 
 
