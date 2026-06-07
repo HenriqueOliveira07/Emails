@@ -127,6 +127,44 @@ async def get_attachments(email_id: int, db: AsyncSession = Depends(get_db)) -> 
     ]
 
 
+@router.get("/attachments")
+async def list_all_attachments(
+    limit: int = Query(default=100, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Lista todos os anexos salvos no sistema."""
+    from sqlalchemy import func
+
+    total = (await db.execute(select(func.count(EmailAttachment.id)))).scalar() or 0
+    result = await db.execute(
+        select(EmailAttachment)
+        .order_by(EmailAttachment.saved_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    atts = result.scalars().all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": a.id,
+                "email_id": a.email_id,
+                "filename": a.filename,
+                "original_filename": a.original_filename,
+                "file_path": a.file_path,
+                "file_size": a.file_size,
+                "file_type": a.file_type,
+                "saved_at": a.saved_at.isoformat() if a.saved_at else None,
+                "has_ocr": bool(a.ocr_text),
+                "has_pdf_text": bool(a.pdf_text),
+                "has_invoice_data": bool(a.invoice_data),
+            }
+            for a in atts
+        ],
+    }
+
+
 @router.patch("/{email_id}/priority")
 async def update_priority(
     email_id: int, body: PriorityUpdate, db: AsyncSession = Depends(get_db)
