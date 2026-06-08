@@ -33,8 +33,9 @@ yarn-error.log*
 *.log
 
 # ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+/attachments/
+/app/attachments/
+/app/logs/
 *.sqlite3
 *.db
 
@@ -47,4 +48,4 @@ logs/
 Thumbs.db
 
 # ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py
+# alembic/versions/*.py  (não ignorar — versões fazem parte do controle de versão)

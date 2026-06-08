@@ -64,11 +64,18 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Erro interno do servidor"})
 
 
-from app.api.routes import dashboard, emails, notifications, settings as settings_router  # noqa: E402
+from app.api.routes import (  # noqa: E402
+    dashboard,
+    emails,
+    notifications,
+    attachments,
+    settings as settings_router,
+)
 
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(emails.router, prefix="/api/emails", tags=["E-mails"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notificações"])
+app.include_router(attachments.router, prefix="/api/attachments", tags=["Anexos"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["Configurações"])
 
 
