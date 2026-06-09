@@ -64,3 +64,13 @@ export const triggerCheck = () => api.post("/settings/trigger-check").then((r) =
 
 export const fetchEmails = (params?: Record<string, string | number | boolean>) =>
   api.get("/emails", { params }).then((r) => r.data);
+
+export const fetchSettings = () => api.get("/settings").then((r) => r.data);
+
+export const fetchLogs = (limit = 100) =>
+  api.get(`/dashboard/processing-logs?limit=${limit}`).then((r) => r.data);
+
+export const fetchAttachments = (params?: Record<string, string | number>) =>
+  api.get("/attachments", { params }).then((r) => r.data);
+
+export const sendDailySummary = () => api.post("/settings/trigger-summary").then((r) => r.data);
