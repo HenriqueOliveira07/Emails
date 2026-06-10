@@ -33,10 +33,14 @@ yarn-error.log*
 *.log
 
 # ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+/backend/attachments/
+/app/attachments/
 *.sqlite3
 *.db
+
+# Ignorar logs de dados, mas não páginas Next.js
+/backend/logs/
+/app/logs/
 
 # ─── IDEs ────────────────────────────────────────────────────
 .vscode/
@@ -46,5 +50,5 @@ logs/
 .DS_Store
 Thumbs.db
 
-# ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py
+# ─── Alembic — não ignorar migrations versionadas ───────────
+# alembic/versions/*.py  # removido: migrations devem ser commitadas

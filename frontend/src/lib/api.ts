@@ -25,6 +25,21 @@ export interface EmailItem {
   processing_time_ms: number | null;
 }
 
+export interface AttachmentItem {
+  id: number;
+  email_id: number;
+  filename: string;
+  original_filename: string;
+  file_path: string;
+  file_size: number;
+  file_type: string;
+  saved_at: string | null;
+  has_ocr: boolean;
+  has_pdf_text: boolean;
+  has_ai_summary: boolean;
+  invoice_data: Record<string, unknown>;
+}
+
 export interface DashboardStats {
   date: string;
   total_emails: number;
@@ -49,6 +64,41 @@ export interface NotificationItem {
   created_at: string | null;
 }
 
+export interface ProcessingLogItem {
+  id: number;
+  action: string;
+  success: boolean;
+  duration_ms: number | null;
+  timestamp: string;
+  error_type: string;
+  error_message: string;
+  details: Record<string, unknown>;
+}
+
+export interface SystemSettings {
+  app_name: string;
+  app_version: string;
+  environment: string;
+  check_interval_seconds: number;
+  max_emails_per_batch: number;
+  max_attachment_size_mb: number;
+  claude_model: string;
+  whatsapp_provider: string;
+  log_retention_days: number;
+  integrations: {
+    outlook_configured: boolean;
+    whatsapp_configured: boolean;
+    claude_configured: boolean;
+    email_address: string;
+    whatsapp_to: string;
+  };
+  priority_keywords: {
+    critical: string[];
+    high: string[];
+    medium: string[];
+  };
+}
+
 export const fetchStats = (): Promise<DashboardStats> =>
   api.get("/dashboard/stats").then((r) => r.data);
 
@@ -60,7 +110,30 @@ export const fetchNotifications = (limit = 30): Promise<NotificationItem[]> =>
 
 export const fetchHealth = () => api.get("/dashboard/health").then((r) => r.data);
 
+export const fetchProcessingLogs = (limit = 50): Promise<ProcessingLogItem[]> =>
+  api.get(`/dashboard/processing-logs?limit=${limit}`).then((r) => r.data);
+
 export const triggerCheck = () => api.post("/settings/trigger-check").then((r) => r.data);
+
+export const triggerSummary = () => api.post("/settings/trigger-summary").then((r) => r.data);
+
+export const fetchSystemSettings = (): Promise<SystemSettings> =>
+  api.get("/settings").then((r) => r.data);
 
 export const fetchEmails = (params?: Record<string, string | number | boolean>) =>
   api.get("/emails", { params }).then((r) => r.data);
+
+export const fetchEmailDetail = (id: number): Promise<EmailItem & { full_body: string; keywords_found: string[]; recipients: string[] }> =>
+  api.get(`/emails/${id}`).then((r) => r.data);
+
+export const reclassifyEmail = (id: number) =>
+  api.post(`/emails/${id}/reclassify`).then((r) => r.data);
+
+export const fetchEmailAttachments = (emailId: number): Promise<AttachmentItem[]> =>
+  api.get(`/emails/${emailId}/attachments`).then((r) => r.data);
+
+export const fetchAllNotifications = (limit = 50): Promise<NotificationItem[]> =>
+  api.get(`/notifications?limit=${limit}`).then((r) => r.data);
+
+export const retryNotification = (id: number) =>
+  api.post(`/notifications/${id}/retry`).then((r) => r.data);

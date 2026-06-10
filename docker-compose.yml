@@ -49,6 +49,9 @@ services:
       REDIS_RESULT_BACKEND: redis://redis:6379/1
       ATTACHMENTS_BASE_PATH: /app/attachments
       LOGS_BASE_PATH: /app/logs
+      PGHOST: postgres
+      PGUSER: emails_user
+      PGDATABASE: emails_db
     volumes:
       - attachments_data:/app/attachments
       - logs_data:/app/logs
@@ -77,6 +80,9 @@ services:
       REDIS_RESULT_BACKEND: redis://redis:6379/1
       ATTACHMENTS_BASE_PATH: /app/attachments
       LOGS_BASE_PATH: /app/logs
+      PGHOST: postgres
+      PGUSER: emails_user
+      PGDATABASE: emails_db
     volumes:
       - attachments_data:/app/attachments
       - logs_data:/app/logs
