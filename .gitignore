@@ -32,9 +32,9 @@ yarn-error.log*
 # ─── Docker ──────────────────────────────────────────────────
 *.log
 
-# ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+# ─── Dados gerados (apenas na raiz do projeto) ───────────────
+/attachments/
+/logs/
 *.sqlite3
 *.db
 
@@ -45,6 +45,3 @@ logs/
 *.swo
 .DS_Store
 Thumbs.db
-
-# ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py
