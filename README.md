@@ -130,13 +130,26 @@ Documentação completa: `http://localhost:8000/api/docs`
 Principais endpoints:
 
 ```
-GET  /api/dashboard/stats          # Estatísticas do dia
-GET  /api/dashboard/recent-emails  # E-mails recentes
-GET  /api/emails                   # Lista com filtros
-POST /api/emails/{id}/reclassify   # Re-classificar com IA
-GET  /api/dashboard/health         # Status das integrações
-POST /api/settings/trigger-check   # Disparar verificação manual
-POST /api/settings/trigger-summary # Enviar resumo diário
+GET  /api/dashboard/stats              # Estatísticas do dia
+GET  /api/dashboard/recent-emails      # E-mails recentes
+GET  /api/dashboard/notifications      # Últimas notificações
+GET  /api/dashboard/processing-logs    # Logs de processamento
+GET  /api/dashboard/health             # Status das integrações
+GET  /api/emails                       # Lista com filtros (priority, sender)
+GET  /api/emails/{id}                  # Detalhes de um e-mail
+POST /api/emails/{id}/reclassify       # Re-classificar com IA
+PATCH /api/emails/{id}/priority        # Alterar prioridade manualmente
+GET  /api/emails/{id}/attachments      # Anexos de um e-mail
+GET  /api/attachments                  # Todos os anexos (paginado)
+GET  /api/attachments/stats            # Estatísticas de anexos
+GET  /api/attachments/{id}             # Detalhes de um anexo
+GET  /api/notifications                # Histórico de notificações
+POST /api/notifications/manual         # Envio manual de notificação
+POST /api/notifications/{id}/retry     # Reenviar notificação falha
+GET  /api/settings                     # Configuração do sistema
+GET  /api/settings/keywords            # Palavras-chave de prioridade
+POST /api/settings/trigger-check       # Disparar verificação manual
+POST /api/settings/trigger-summary     # Enviar resumo diário
 ```
 
 ## Organização de Anexos
