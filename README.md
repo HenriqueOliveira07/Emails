@@ -1,60 +1,80 @@
-# Sistema de Monitoramento de E-mails com WhatsApp
+# Sistema de Monitoramento Inteligente de E-mails
 
-Sistema corporativo automatizado para monitoramento inteligente de e-mails com classificação por IA (Claude) e notificações via WhatsApp.
+Sistema corporativo completo para monitoramento automatizado de e-mails com classificação por IA (Claude) e notificações instantâneas via WhatsApp. Pronto para produção.
 
-## Arquitetura
+---
+
+## Visão Geral
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         NGINX (porta 80)                        │
-│                    Reverse Proxy / Load Balancer                │
-└────────────────────┬───────────────────────┬────────────────────┘
-                     │                       │
-          ┌──────────▼──────────┐  ┌────────▼────────┐
-          │   Frontend Next.js  │  │  Backend FastAPI │
-          │     (porta 3000)    │  │   (porta 8000)   │
-          └─────────────────────┘  └────────┬────────┘
-                                            │
-                     ┌──────────────────────┼──────────────────────┐
-                     │                      │                      │
-           ┌─────────▼──────┐    ┌──────────▼──────┐    ┌─────────▼──────┐
-           │   PostgreSQL   │    │     Redis        │    │  Celery Beat   │
-           │    (dados)     │    │  (fila/cache)    │    │  (agendador)   │
-           └────────────────┘    └─────────────────┘    └────────────────┘
-                                          │
-                              ┌───────────▼───────────┐
-                              │    Celery Workers      │
-                              │  (processamento IA)    │
-                              └───────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         NGINX — Reverse Proxy (porta 80)                     │
+└───────────────────────────┬──────────────────────────┬───────────────────────┘
+                            │                          │
+               ┌────────────▼────────────┐  ┌──────────▼──────────┐
+               │  Frontend Next.js       │  │  Backend FastAPI     │
+               │  Dashboard (porta 3000) │  │  REST API (porta 8000)│
+               └─────────────────────────┘  └──────────┬──────────┘
+                                                        │
+          ┌─────────────────────────┬───────────────────┼──────────────────────┐
+          │                         │                   │                      │
+ ┌────────▼────────┐    ┌───────────▼───────┐  ┌────────▼────────┐  ┌─────────▼──────┐
+ │   PostgreSQL 16 │    │    Redis 7         │  │  Celery Beat    │  │  Celery Worker │
+ │   (dados)       │    │  (fila / cache)    │  │  (agendador)    │  │  (IA / e-mail) │
+ └─────────────────┘    └───────────────────┘  └─────────────────┘  └────────────────┘
 ```
 
 ## Fluxo de Processamento
 
 ```
-Celery Beat (60s)
-      │
-      ▼
-check_new_emails()
-      │
-      ▼
-OutlookEmailReader ──► Microsoft Graph API
-      │
-      ▼
-AIClassifier (Claude) ──► Prioridade + Resumo
-      │
-      ├── CRÍTICO/ALTO ──► WhatsAppSender ──► Notificação imediata
-      │
-      ├── AttachmentHandler ──► /Emails_Importantes/YYYY/MM/DD/Sender/
-      │
-      └── PostgreSQL ──► Registro completo + Logs
+Celery Beat (a cada 60s)
+         │
+         ▼
+ check_new_emails()
+         │
+         ▼
+ OutlookEmailReader ──► Microsoft Graph API (OAuth2 Client Credentials)
+         │
+         ├─► parse_email() — normaliza campos
+         │
+         ▼
+ AIClassifier (Claude claude-sonnet-4-6)
+         │
+         ├─► Tool use: classificar_email()
+         │     ├── priority: CRITICO | ALTO | MEDIO | BAIXO
+         │     ├── category: Pagamento, Contrato, Alerta, etc.
+         │     ├── summary: resumo em 2–3 frases
+         │     ├── keywords_found: [ "urgente", "vencimento" ]
+         │     ├── is_spam: true/false
+         │     └── action_required: true/false
+         │
+         ├── is_spam → ignorar + log
+         │
+         ├── CRITICO/ALTO ──► WhatsAppSender (Twilio ou Meta)
+         │                         └── Notificação instantânea formatada
+         │
+         ├── has_attachments ──► AttachmentHandler
+         │                           ├── Validação de extensão (bloqueia .exe/.bat/etc.)
+         │                           ├── OCR em imagens (pytesseract)
+         │                           ├── Extração de texto PDF (PyPDF2)
+         │                           └── /app/attachments/YYYY/MM/DD/Remetente/
+         │
+         └── PostgreSQL ──► EmailRecord + EmailAttachment + NotificationLog + ProcessingLog
 ```
+
+---
 
 ## Pré-requisitos
 
-- Docker e Docker Compose v2+
-- Conta Microsoft Azure com App Registration configurado
-- API do WhatsApp (Twilio ou Meta Business)
-- Chave API da Anthropic (Claude)
+| Requisito | Versão mínima |
+|-----------|---------------|
+| Docker | 24+ |
+| Docker Compose | v2.20+ |
+| Conta Azure AD | App Registration configurado |
+| API WhatsApp | Twilio ou Meta Business |
+| API Anthropic | Claude Sonnet 4 ou superior |
+
+---
 
 ## Instalação Rápida
 
@@ -65,162 +85,375 @@ cd emails
 
 # 2. Configure as variáveis de ambiente
 cp .env.example .env
-nano .env  # Preencha todas as variáveis obrigatórias
+# Edite o .env com suas credenciais reais
 
-# 3. Suba os serviços
+# 3. Inicie todos os serviços
 docker compose up -d
 
-# 4. Verifique os logs
-docker compose logs -f backend
-docker compose logs -f celery-worker
+# 4. Acompanhe os logs (aguarde todos os serviços subirem ~30s)
+docker compose logs -f backend celery-worker
+
+# 5. Acesse o dashboard
+open http://localhost
 ```
 
-## Configuração do Azure AD
+---
 
-1. Acesse [portal.azure.com](https://portal.azure.com)
-2. **Azure Active Directory** → **Registros de aplicativo** → **Novo registro**
-3. Nome: `Email Monitor`, tipo: **Contas neste diretório organizacional**
-4. Em **Permissões de API** adicione (tipo **Aplicativo**):
+## Configuração do Azure AD (Outlook 365)
+
+1. Acesse **portal.azure.com** → **Azure Active Directory** → **Registros de aplicativo** → **Novo registro**
+2. Nome: `Email Monitor` · Tipo: **Contas neste diretório organizacional**
+3. Em **Permissões de API** → **Adicionar permissão** → **Microsoft Graph** → **Permissões do aplicativo**:
    - `Mail.Read`
    - `Mail.ReadWrite`
-   - `User.Read.All`
-5. **Conceder consentimento do administrador**
-6. Em **Certificados e segredos** crie um novo segredo
-7. Copie: Client ID, Client Secret, Tenant ID → `.env`
+4. Clique em **Conceder consentimento do administrador**
+5. Em **Certificados e segredos** → **Novo segredo do cliente** → copie o valor
+6. Copie: **Client ID**, **Client Secret**, **Directory (Tenant) ID**
+7. Configure no `.env`:
+
+```env
+OUTLOOK_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+OUTLOOK_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx~
+OUTLOOK_TENANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+OUTLOOK_EMAIL_ADDRESS=usuario@suaempresa.com.br
+```
+
+---
 
 ## Configuração WhatsApp
 
-### Twilio (recomendado para testes)
-1. Crie conta em [twilio.com](https://twilio.com)
-2. Ative o WhatsApp Sandbox
-3. Configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`
-4. `WHATSAPP_PROVIDER=twilio`
+### Opção A — Twilio (recomendado para testes)
 
-### Meta Business API (produção)
-1. Crie app em [developers.facebook.com](https://developers.facebook.com)
-2. Adicione produto **WhatsApp**
-3. Configure `META_WHATSAPP_PHONE_NUMBER_ID`, `META_WHATSAPP_ACCESS_TOKEN`
-4. `WHATSAPP_PROVIDER=meta`
+```bash
+# 1. Crie conta em https://twilio.com/try-twilio
+# 2. Ative o WhatsApp Sandbox em Messaging → Try it Out → Send a WhatsApp message
+# 3. Configure no .env:
+WHATSAPP_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+WHATSAPP_PHONE_NUMBER=+14155238886   # número Twilio Sandbox
+WHATSAPP_TO_NUMBER=+5511999999999   # seu número (deve ter joined o sandbox)
+```
+
+### Opção B — Meta WhatsApp Business API (produção)
+
+```bash
+# 1. Acesse https://developers.facebook.com → Criar app → Tipo: Business
+# 2. Adicione o produto "WhatsApp" ao app
+# 3. Configure no .env:
+WHATSAPP_PROVIDER=meta
+META_WHATSAPP_PHONE_NUMBER_ID=xxxxxxxxxxxxxxxx
+META_WHATSAPP_ACCESS_TOKEN=EAAxxxxxxxxxxxxxxx
+WHATSAPP_TO_NUMBER=+5511999999999
+```
+
+---
+
+## Configuração da API Claude
+
+```bash
+# Gere sua chave em https://console.anthropic.com
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxx
+CLAUDE_MODEL=claude-sonnet-4-6
+CLAUDE_MAX_TOKENS=1024
+```
+
+---
 
 ## Serviços e Portas
 
-| Serviço | Porta | Descrição |
-|---------|-------|-----------|
-| Nginx | 80 | Proxy principal |
-| Frontend | 3000 | Dashboard Next.js |
-| Backend | 8000 | API FastAPI |
-| Flower | 5555 | Monitor Celery |
+| Serviço | Porta | URL | Descrição |
+|---------|-------|-----|-----------|
+| Nginx | 80 | http://localhost | Proxy reverso principal |
+| Frontend | 3000 | http://localhost:3000 | Dashboard Next.js |
+| Backend API | 8000 | http://localhost:8000/api/docs | FastAPI + Swagger |
+| Celery Flower | 5555 | http://localhost:5555 | Monitor de tarefas |
 
-## Dashboard
+---
 
-Acesse `http://localhost` após iniciar os serviços.
+## Dashboard — Páginas Disponíveis
 
-**Funcionalidades:**
-- Estatísticas em tempo real (atualização a cada 30s)
-- Gráfico de distribuição por prioridade
-- Tabela de e-mails com detalhes expandíveis
-- Log de notificações WhatsApp enviadas
-- Indicador de status das integrações
-- Botão "Verificar Agora" para disparo manual
+| Rota | Descrição |
+|------|-----------|
+| `/dashboard` | Visão geral com stats, gráfico de prioridades e e-mails recentes |
+| `/emails` | Lista completa de e-mails com filtros por prioridade, remetente e anexos |
+| `/notifications` | Histórico de notificações WhatsApp enviadas com opção de reenvio |
+| `/attachments` | Galeria de anexos salvos com busca por nome/remetente/assunto |
+| `/logs` | Logs de processamento do sistema com filtros por ação e status |
+| `/settings` | Configurações do sistema, status de integrações e ações manuais |
 
-## API REST
+---
 
-Documentação completa: `http://localhost:8000/api/docs`
+## Sistema de Prioridades
 
-Principais endpoints:
+| Nível | Emoji | Descrição | WhatsApp | Exemplos |
+|-------|-------|-----------|----------|---------- |
+| CRÍTICO | 🔴 | Ação imediata necessária | ✅ Instantâneo | Sistema parado, emergência, vencimento hoje |
+| ALTO | 🟠 | Ação necessária em horas | ✅ Instantâneo | Aprovação pendente, contrato, pagamento, diretoria |
+| MÉDIO | 🟡 | Ação necessária no dia | ❌ | Fornecedores, clientes, pendências, relatórios |
+| BAIXO | 🟢 | Informativo | ❌ | Newsletters, atualizações rotineiras |
+| SPAM | ⚫ | Ignorado | ❌ | No-reply, marketing, respostas automáticas |
+
+---
+
+## Formato da Notificação WhatsApp
 
 ```
-GET  /api/dashboard/stats          # Estatísticas do dia
-GET  /api/dashboard/recent-emails  # E-mails recentes
-GET  /api/emails                   # Lista com filtros
-POST /api/emails/{id}/reclassify   # Re-classificar com IA
-GET  /api/dashboard/health         # Status das integrações
-POST /api/settings/trigger-check   # Disparar verificação manual
-POST /api/settings/trigger-summary # Enviar resumo diário
+[CRÍTICO]
+Novo e-mail importante recebido
+
+Remetente: Financeiro <financeiro@empresa.com.br>
+Assunto: Aprovação urgente de pagamento — fornecedor ABC
+Categoria: Pagamento
+Horário: 13/06/2026 08:42
+
+Resumo:
+Fornecedor ABC aguarda aprovação do pagamento de R$ 45.000,00
+referente à NF 12345. Prazo limite: hoje às 12h00.
+
+Ação necessária: Aprovar pagamento no sistema ERP até 12h
+
+Anexos: 2 arquivo(s)
 ```
+
+---
 
 ## Organização de Anexos
 
 ```
 /app/attachments/
-└── Emails_Importantes/
-    └── 2026/
-        └── 05/
-            └── 27/
-                └── Financeiro_Empresa/
-                    ├── boleto_maio_2026.pdf
-                    ├── contrato_fornecedor_abc6f2.docx
-                    └── nf_12345.xml
+└── 2026/
+    └── 06/
+        └── 13/
+            ├── Financeiro_empresa/
+            │   ├── NF_12345.pdf
+            │   └── boleto_junho_2026.pdf
+            └── Fornecedor_ABC/
+                ├── contrato_servicos_a3f2b1.docx
+                └── proposta_comercial.xlsx
 ```
 
-## Prioridades
+Nomenclatura automática para evitar duplicidades: `{nome_original}_{hash6}{ext}`
 
-| Nível | Cor | Exemplos | WhatsApp |
-|-------|-----|----------|----------|
-| CRÍTICO | 🔴 | Sistema parado, emergência, vencimento hoje | ✅ Imediato |
-| ALTO | 🟠 | Aprovações, contratos, pagamentos, diretoria | ✅ Imediato |
-| MÉDIO | 🟡 | Fornecedores, clientes, pendências | ❌ |
-| BAIXO | 🟢 | Informativos, atualizações rotineiras | ❌ |
+---
+
+## API REST — Principais Endpoints
+
+```
+GET  /api/health                           # Status da aplicação
+GET  /api/dashboard/stats                  # Estatísticas do dia
+GET  /api/dashboard/recent-emails          # E-mails recentes
+GET  /api/dashboard/notifications          # Histórico de notificações
+GET  /api/dashboard/processing-logs        # Logs de processamento
+GET  /api/dashboard/health                 # Status das integrações
+
+GET  /api/emails                           # Listar e-mails (filtros: priority, sender, has_attachments)
+GET  /api/emails/{id}                      # Detalhes de um e-mail
+POST /api/emails/{id}/reclassify           # Re-classificar com IA
+GET  /api/emails/{id}/attachments          # Anexos de um e-mail
+PATCH /api/emails/{id}/priority            # Atualizar prioridade manualmente
+
+GET  /api/notifications                    # Listar notificações
+POST /api/notifications/{id}/retry         # Reenviar notificação
+
+GET  /api/settings                         # Configurações (sem credenciais)
+GET  /api/settings/keywords                # Palavras-chave de prioridade
+POST /api/settings/trigger-check           # Disparar verificação manual
+POST /api/settings/trigger-summary         # Enviar resumo diário agora
+```
+
+Documentação interativa: **http://localhost:8000/api/docs**
+
+---
+
+## Variáveis de Ambiente Obrigatórias
+
+```env
+# Segurança
+SECRET_KEY=<32+ chars aleatórios>
+ENCRYPTION_KEY=<chave Fernet base64>
+
+# Banco
+POSTGRES_PASSWORD=<senha forte>
+
+# Azure / Outlook
+OUTLOOK_CLIENT_ID=
+OUTLOOK_CLIENT_SECRET=
+OUTLOOK_TENANT_ID=
+OUTLOOK_EMAIL_ADDRESS=
+
+# Anthropic
+ANTHROPIC_API_KEY=
+
+# WhatsApp (Twilio)
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+WHATSAPP_PHONE_NUMBER=
+WHATSAPP_TO_NUMBER=
+```
+
+Gerar chaves de segurança:
+```bash
+# SECRET_KEY
+python -c "import secrets; print(secrets.token_hex(32))"
+
+# ENCRYPTION_KEY
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+---
 
 ## Comandos Úteis
 
 ```bash
-# Ver logs em tempo real
-docker compose logs -f celery-worker
+# Ver todos os serviços
+docker compose ps
 
-# Disparar verificação manual
+# Logs em tempo real
+docker compose logs -f celery-worker
+docker compose logs -f backend
+
+# Disparar verificação manual via CLI
 docker compose exec backend python -c "
 from app.workers.tasks import check_new_emails
-check_new_emails.delay()
+result = check_new_emails.delay()
+print('Task ID:', result.id)
 "
 
-# Acessar banco de dados
+# Executar migrations (necessário ao atualizar schema)
+docker compose exec backend alembic upgrade head
+
+# Acessar o banco de dados
 docker compose exec postgres psql -U emails_user -d emails_db
 
-# Escalar workers
+# Escalar workers para processamento paralelo
 docker compose up -d --scale celery-worker=3
 
-# Ver tarefas no Flower
-open http://localhost:5555
+# Monitorar tarefas em tempo real
+open http://localhost:5555   # Flower UI
+
+# Backup do banco
+docker compose exec postgres pg_dump -U emails_user emails_db > backup.sql
+
+# Parar tudo
+docker compose down
+
+# Parar e remover volumes (CUIDADO: apaga todos os dados)
+docker compose down -v
 ```
+
+---
+
+## Migrations com Alembic
+
+```bash
+# Aplicar todas as migrations pendentes
+docker compose exec backend alembic upgrade head
+
+# Ver histórico de migrations
+docker compose exec backend alembic history
+
+# Gerar nova migration após alterar models
+docker compose exec backend alembic revision --autogenerate -m "descricao"
+
+# Reverter última migration
+docker compose exec backend alembic downgrade -1
+```
+
+---
 
 ## Segurança e LGPD
 
-- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
-- Tokens JWT com expiração configurável
-- Validação de tipos de arquivo (bloqueio de executáveis)
-- Logs de auditoria completos com retenção configurável
-- Sem armazenamento de senhas em texto plano
-- Conexões PostgreSQL com pool e timeout
-
-## Variáveis de Ambiente Obrigatórias
-
-```
-OUTLOOK_CLIENT_ID          # Azure App Registration
-OUTLOOK_CLIENT_SECRET      # Azure App Secret
-OUTLOOK_TENANT_ID          # Azure Tenant ID
-OUTLOOK_EMAIL_ADDRESS      # E-mail a monitorar
-ANTHROPIC_API_KEY          # Claude API
-WHATSAPP_TO_NUMBER         # Seu número WhatsApp
-TWILIO_ACCOUNT_SID         # Twilio Account SID
-TWILIO_AUTH_TOKEN          # Twilio Auth Token
-WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
-```
-
-## Tecnologias
-
-| Categoria | Tecnologia |
-|-----------|-----------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
-| Fila | Celery 5, Redis 7 |
-| Banco | PostgreSQL 16 |
-| Frontend | Next.js 14, TailwindCSS, Recharts |
-| E-mail | Microsoft Graph API, MSAL |
-| WhatsApp | Twilio / Meta Business API |
-| Container | Docker, Docker Compose |
-| Proxy | Nginx |
+| Medida | Implementação |
+|--------|---------------|
+| Criptografia de credenciais | Fernet (AES-128-CBC + HMAC-SHA256) |
+| Autenticação API | JWT tokens com expiração |
+| Validação de anexos | Whitelist de extensões, bloqueio de executáveis |
+| Tamanho de anexo | Limite configurável (padrão 25 MB) |
+| Logs de auditoria | Todos os eventos registrados com timestamp |
+| Retenção de logs | Purge automático (padrão 90 dias) |
+| Sem texto plano | Senhas e tokens nunca em logs |
+| Pool de conexões | SQLAlchemy com pool_pre_ping e pool_recycle |
 
 ---
+
+## Funcionalidades de IA
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| Classificação de prioridade | Claude analisa remetente, assunto e corpo |
+| Resumo inteligente | 2–3 frases objetivas do conteúdo principal |
+| Detecção de spam | Newsletters, no-reply, respostas automáticas |
+| Identificação de ação | Se o e-mail exige ação do destinatário |
+| Extração de PDF | PyPDF2 extrai texto para contexto da IA |
+| OCR em imagens | pytesseract (português + inglês) |
+| Extração financeira | Dados de boletos e notas fiscais |
+| Fallback por keywords | Classifica sem IA se API falhar |
+
+---
+
+## Stack Tecnológica
+
+| Categoria | Tecnologia | Versão |
+|-----------|-----------|--------|
+| Backend | Python + FastAPI | 3.12 / 0.111 |
+| IA | Claude (Anthropic) | claude-sonnet-4-6 |
+| Banco de dados | PostgreSQL | 16 |
+| Cache / Fila | Redis | 7 |
+| Workers | Celery | 5.4 |
+| ORM | SQLAlchemy (async) | 2.0 |
+| Frontend | Next.js + TailwindCSS | 14 / 3.4 |
+| Gráficos | Recharts | 2.12 |
+| E-mail | Microsoft Graph API | v1.0 |
+| Autenticação | MSAL (Client Credentials) | 1.28 |
+| WhatsApp | Twilio / Meta Business API | — |
+| Container | Docker + Docker Compose | — |
+| Proxy | Nginx | alpine |
+| Monitoramento | Flower (Celery) | 2.0 |
+
+---
+
+## Troubleshooting
+
+**Backend não inicia / erro de conexão PostgreSQL:**
+```bash
+docker compose logs postgres
+# Aguarde o health check: "database system is ready to accept connections"
+```
+
+**E-mails não são buscados:**
+```bash
+docker compose logs celery-worker
+# Verifique OUTLOOK_CLIENT_ID, OUTLOOK_CLIENT_SECRET, OUTLOOK_TENANT_ID no .env
+# Confirme que as permissões Mail.Read foram concedidas no Azure
+```
+
+**WhatsApp não envia:**
+```bash
+# Para Twilio Sandbox: o número destino precisa ter enviado "join <palavra>" para o sandbox
+# Verifique TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN
+docker compose exec backend python -c "
+from app.services.whatsapp_sender import WhatsAppSender
+import asyncio
+s = WhatsAppSender()
+r = asyncio.run(s._send_message('+5511999999999', 'Teste'))
+print(r)
+"
+```
+
+**Claude API falha:**
+```bash
+# O sistema cai automaticamente para classificação por palavras-chave
+# Verifique ANTHROPIC_API_KEY
+docker compose exec backend python -c "
+import anthropic, os
+c = anthropic.Anthropic(api_key=os.environ['ANTHROPIC_API_KEY'])
+print(c.messages.create(model='claude-haiku-4-5-20251001', max_tokens=10, messages=[{'role':'user','content':'ok'}]).content)
+"
+```
+
+---
+
+## Licença
 
 Desenvolvido para ambiente corporativo — escalável, seguro e pronto para produção.
