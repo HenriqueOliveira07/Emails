@@ -32,9 +32,10 @@ yarn-error.log*
 # ─── Docker ──────────────────────────────────────────────────
 *.log
 
-# ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+# ─── Dados gerados (volumes de runtime, não código-fonte) ────
+/backend/attachments/
+/backend/logs/
+Emails_Importantes/
 *.sqlite3
 *.db
 
@@ -46,5 +47,5 @@ logs/
 .DS_Store
 Thumbs.db
 
-# ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py
+# ─── Alembic (manter migrations versionadas no git) ──────────
+# alembic/versions/*.py  ← removido: migrações devem ser commitadas

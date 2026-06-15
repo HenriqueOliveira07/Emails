@@ -101,6 +101,19 @@ async def reclassify_email(email_id: int, db: AsyncSession = Depends(get_db)) ->
     return {"success": True, "new_priority": email.priority.value, "ai_result": ai_result}
 
 
+@router.get("/attachments/all")
+async def list_all_attachments(
+    limit: int = Query(default=200, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict]:
+    """Lista todos os anexos salvos no sistema."""
+    result = await db.execute(
+        select(EmailAttachment).order_by(EmailAttachment.saved_at.desc()).limit(limit)
+    )
+    atts = result.scalars().all()
+    return [_serialize_attachment(a) for a in atts]
+
+
 @router.get("/{email_id}/attachments")
 async def get_attachments(email_id: int, db: AsyncSession = Depends(get_db)) -> List[Dict]:
     """Lista anexos de um e-mail."""
@@ -109,22 +122,7 @@ async def get_attachments(email_id: int, db: AsyncSession = Depends(get_db)) -> 
         select(EmailAttachment).where(EmailAttachment.email_id == email_id)
     )
     atts = result.scalars().all()
-    return [
-        {
-            "id": a.id,
-            "filename": a.filename,
-            "original_filename": a.original_filename,
-            "file_path": a.file_path,
-            "file_size": a.file_size,
-            "file_type": a.file_type,
-            "saved_at": a.saved_at.isoformat() if a.saved_at else None,
-            "has_ocr": bool(a.ocr_text),
-            "has_pdf_text": bool(a.pdf_text),
-            "has_ai_summary": bool(a.ai_summary),
-            "invoice_data": a.invoice_data,
-        }
-        for a in atts
-    ]
+    return [_serialize_attachment(a) for a in atts]
 
 
 @router.patch("/{email_id}/priority")
@@ -153,6 +151,24 @@ async def _get_or_404(email_id: int, db: AsyncSession) -> EmailRecord:
     if not email:
         raise HTTPException(status_code=404, detail="E-mail não encontrado")
     return email
+
+
+def _serialize_attachment(a: EmailAttachment) -> Dict[str, Any]:
+    return {
+        "id": a.id,
+        "email_id": a.email_id,
+        "filename": a.filename,
+        "original_filename": a.original_filename,
+        "file_path": a.file_path,
+        "file_size": a.file_size,
+        "file_type": a.file_type,
+        "saved_at": a.saved_at.isoformat() if a.saved_at else None,
+        "has_ocr": bool(a.ocr_text),
+        "has_pdf_text": bool(a.pdf_text),
+        "has_ai_summary": bool(a.ai_summary),
+        "invoice_data": a.invoice_data,
+        "is_malicious": a.is_malicious,
+    }
 
 
 def _serialize(e: EmailRecord) -> Dict[str, Any]:
