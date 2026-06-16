@@ -167,6 +167,14 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         email_record.id, att["filename"], att["file_path"], att["file_size"]
                     )
 
+                # Notificar painel via WebSocket (best-effort, sem bloquear)
+                try:
+                    from app.api.routes.websocket import notify_new_email
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(notify_new_email(parsed, ai_result))
+                except Exception:
+                    pass
+
                 # Enviar WhatsApp se for CRÍTICO ou ALTO
                 whatsapp_sent = False
                 if priority in (PriorityLevel.CRITICAL, PriorityLevel.HIGH):

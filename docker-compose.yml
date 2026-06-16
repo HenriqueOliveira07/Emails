@@ -35,6 +35,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── Migração do Banco (roda antes do backend) ───────────────────────────────
+  db-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emails_db_migrate
+    restart: "no"
+    command: alembic upgrade head
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emails-network
+
   # ─── Backend FastAPI ──────────────────────────────────────────────────────────
   backend:
     build:
@@ -55,6 +72,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
+      db-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

@@ -13,8 +13,10 @@ import { Header } from "@/components/Layout/Header";
 import {
   Mail, AlertTriangle, Paperclip, MessageCircle, XCircle, TrendingUp,
 } from "lucide-react";
+import { useRealtimeStats } from "@/lib/useRealtimeStats";
 
 export default function DashboardPage() {
+  useRealtimeStats();
   const { data: stats, isLoading: loadingStats } = useQuery<DashboardStats>({
     queryKey: ["stats"],
     queryFn: fetchStats,
