@@ -2,7 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchStats, fetchRecentEmails, fetchNotifications,
-  DashboardStats,
+  DashboardStats, fetchHealth,
 } from "@/lib/api";
 import { StatsCard } from "@/components/Dashboard/StatsCard";
 import { PriorityChart } from "@/components/Dashboard/PriorityChart";
@@ -12,10 +12,11 @@ import { Sidebar } from "@/components/Layout/Sidebar";
 import { Header } from "@/components/Layout/Header";
 import {
   Mail, AlertTriangle, Paperclip, MessageCircle, XCircle, TrendingUp,
+  Activity,
 } from "lucide-react";
 
 export default function DashboardPage() {
-  const { data: stats, isLoading: loadingStats } = useQuery<DashboardStats>({
+  const { data: stats } = useQuery<DashboardStats>({
     queryKey: ["stats"],
     queryFn: fetchStats,
     refetchInterval: 30_000,
@@ -33,12 +34,28 @@ export default function DashboardPage() {
     refetchInterval: 30_000,
   });
 
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+    refetchInterval: 60_000,
+  });
+
   return (
     <div className="flex min-h-screen">
       <Sidebar />
       <div className="flex-1 flex flex-col">
         <Header title="Dashboard" />
         <main className="flex-1 p-6 space-y-6 overflow-y-auto">
+          {/* System health banner */}
+          {health && health.overall !== "ok" && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-5 py-3 flex items-center gap-3">
+              <Activity size={16} className="text-red-400 shrink-0" />
+              <span className="text-sm text-red-300">
+                Sistema em estado degradado — verifique a página de Configurações para detalhes das integrações.
+              </span>
+            </div>
+          )}
+
           {/* Stats Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatsCard

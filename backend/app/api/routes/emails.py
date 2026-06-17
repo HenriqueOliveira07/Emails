@@ -147,6 +147,35 @@ async def update_priority(
     return {"success": True, "priority": email.priority.value}
 
 
+@router.get("/attachments/all")
+async def list_all_attachments(
+    limit: int = Query(default=200, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict]:
+    """Lista todos os anexos salvos no sistema."""
+    result = await db.execute(
+        select(EmailAttachment).order_by(EmailAttachment.saved_at.desc()).limit(limit)
+    )
+    atts = result.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "email_id": a.email_id,
+            "filename": a.filename,
+            "original_filename": a.original_filename,
+            "file_path": a.file_path,
+            "file_size": a.file_size,
+            "file_type": a.file_type,
+            "saved_at": a.saved_at.isoformat() if a.saved_at else None,
+            "has_ocr": bool(a.ocr_text),
+            "has_pdf_text": bool(a.pdf_text),
+            "has_ai_summary": bool(a.ai_summary),
+            "invoice_data": a.invoice_data,
+        }
+        for a in atts
+    ]
+
+
 async def _get_or_404(email_id: int, db: AsyncSession) -> EmailRecord:
     result = await db.execute(select(EmailRecord).where(EmailRecord.id == email_id))
     email = result.scalar_one_or_none()

@@ -152,8 +152,12 @@ class AttachmentHandler:
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
+                if pdf_text:
+                    invoice_data = self._try_extract_invoice(pdf_text)
             elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
                 ocr_text = self._ocr_image(file_path)
+                if ocr_text:
+                    invoice_data = self._try_extract_invoice(ocr_text)
 
             logger.info(
                 "attachment_saved",
@@ -175,6 +179,16 @@ class AttachmentHandler:
             })
 
         return saved
+
+    @staticmethod
+    def _try_extract_invoice(text: str) -> Dict:
+        """Tenta extrair dados financeiros do texto usando Claude (best-effort)."""
+        try:
+            from app.services.ai_classifier import AIClassifier
+            classifier = AIClassifier()
+            return classifier.extract_invoice_data(text)
+        except Exception:
+            return {}
 
     @staticmethod
     def _extract_pdf_text(file_path: Path) -> str:

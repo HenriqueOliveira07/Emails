@@ -64,3 +64,21 @@ export const triggerCheck = () => api.post("/settings/trigger-check").then((r) =
 
 export const fetchEmails = (params?: Record<string, string | number | boolean>) =>
   api.get("/emails", { params }).then((r) => r.data);
+
+export const fetchProcessingLogs = (limit = 100) =>
+  api.get(`/dashboard/processing-logs?limit=${limit}`).then((r) => r.data);
+
+export const fetchAllAttachments = (limit = 200) =>
+  api.get(`/emails/attachments/all?limit=${limit}`).then((r) => r.data);
+
+export const fetchSystemSettings = () =>
+  api.get("/settings").then((r) => r.data);
+
+export const triggerDailySummary = () =>
+  api.post("/settings/trigger-summary").then((r) => r.data);
+
+export const retryNotification = (id: number) =>
+  api.post(`/notifications/${id}/retry`).then((r) => r.data);
+
+export const reclassifyEmail = (id: number) =>
+  api.post(`/emails/${id}/reclassify`).then((r) => r.data);
