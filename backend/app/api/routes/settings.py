@@ -25,6 +25,7 @@ async def get_settings() -> Dict[str, Any]:
         "check_interval_seconds": settings.CHECK_INTERVAL_SECONDS,
         "max_emails_per_batch": settings.MAX_EMAILS_PER_BATCH,
         "max_attachment_size_mb": settings.MAX_ATTACHMENT_SIZE_MB,
+        "attachments_base_path": settings.ATTACHMENTS_BASE_PATH,
         "claude_model": settings.CLAUDE_MODEL,
         "whatsapp_provider": settings.WHATSAPP_PROVIDER,
         "log_retention_days": settings.LOG_RETENTION_DAYS,

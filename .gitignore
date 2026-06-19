@@ -32,9 +32,12 @@ yarn-error.log*
 # ─── Docker ──────────────────────────────────────────────────
 *.log
 
-# ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+# ─── Dados gerados (volumes locais) ──────────────────────────
+# Pastas de dados criadas localmente ao rodar sem Docker
+/app/attachments/
+/app/logs/
+local_attachments/
+local_logs/
 *.sqlite3
 *.db
 
@@ -45,6 +48,3 @@ logs/
 *.swo
 .DS_Store
 Thumbs.db
-
-# ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py

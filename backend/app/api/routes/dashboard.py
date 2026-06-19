@@ -113,12 +113,16 @@ async def get_notifications(
     return [
         {
             "id": n.id,
+            "email_id": n.email_id,
             "channel": n.channel.value if n.channel else "whatsapp",
             "recipient": n.recipient,
+            "message_body": n.message_body,
             "status": n.status.value if n.status else "pendente",
             "sent_at": n.sent_at.isoformat() if n.sent_at else None,
-            "error_message": n.error_message,
+            "error_message": n.error_message or "",
             "retry_count": n.retry_count,
+            "external_id": n.external_id or "",
+            "created_at": n.created_at.isoformat() if n.created_at else None,
         }
         for n in logs
     ]

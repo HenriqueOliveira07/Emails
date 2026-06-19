@@ -111,17 +111,27 @@ docker compose logs -f celery-worker
 | Backend | 8000 | API FastAPI |
 | Flower | 5555 | Monitor Celery |
 
-## Dashboard
+## Dashboard e Páginas
 
 Acesse `http://localhost` após iniciar os serviços.
 
-**Funcionalidades:**
+| Rota | Descrição |
+|------|-----------|
+| `/dashboard` | Visão geral — stats, gráfico, e-mails recentes, notificações |
+| `/emails` | Lista completa com filtros por prioridade e anexos; reclassificação IA |
+| `/notifications` | Histórico de notificações WhatsApp com corpo expandível |
+| `/attachments` | E-mails com anexos e caminho organizado em disco |
+| `/logs` | Logs de processamento do sistema com filtro por ação |
+| `/settings` | Status das integrações + ações manuais |
+
+**Funcionalidades do Dashboard:**
 - Estatísticas em tempo real (atualização a cada 30s)
 - Gráfico de distribuição por prioridade
-- Tabela de e-mails com detalhes expandíveis
+- Tabela de e-mails com detalhes expandíveis e reclassificação
 - Log de notificações WhatsApp enviadas
 - Indicador de status das integrações
 - Botão "Verificar Agora" para disparo manual
+- Envio manual de resumo diário
 
 ## API REST
 

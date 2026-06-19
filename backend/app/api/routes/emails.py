@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
@@ -46,12 +46,16 @@ async def list_emails(
     if sender:
         query = query.where(EmailRecord.sender_email.ilike(f"%{sender}%"))
 
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar() or 0
+
     query = query.order_by(EmailRecord.received_at.desc()).offset(offset).limit(limit)
     result = await db.execute(query)
     emails = result.scalars().all()
 
     return {
         "items": [_serialize(e) for e in emails],
+        "total": total,
         "limit": limit,
         "offset": offset,
     }

@@ -64,3 +64,28 @@ export const triggerCheck = () => api.post("/settings/trigger-check").then((r) =
 
 export const fetchEmails = (params?: Record<string, string | number | boolean>) =>
   api.get("/emails", { params }).then((r) => r.data);
+
+export const triggerSummary = () => api.post("/settings/trigger-summary").then((r) => r.data);
+
+export const fetchProcessingLogs = (limit = 50): Promise<ProcessingLogItem[]> =>
+  api.get(`/dashboard/processing-logs?limit=${limit}`).then((r) => r.data);
+
+export const reclassifyEmail = (id: number) =>
+  api.post(`/emails/${id}/reclassify`).then((r) => r.data);
+
+export const fetchEmailDetail = (id: number): Promise<EmailItem> =>
+  api.get(`/emails/${id}`).then((r) => r.data);
+
+export const fetchAttachments = (params?: Record<string, string | number>) =>
+  api.get("/emails", { params: { has_attachments: true, ...params } }).then((r) => r.data);
+
+export interface ProcessingLogItem {
+  id: number;
+  action: string;
+  success: boolean;
+  duration_ms: number | null;
+  timestamp: string;
+  error_type: string;
+  error_message: string;
+  details: Record<string, unknown>;
+}
