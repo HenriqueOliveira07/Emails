@@ -33,8 +33,10 @@ yarn-error.log*
 *.log
 
 # ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+/attachments/
+/logs/
+backend/app/attachments/
+backend/logs/
 *.sqlite3
 *.db
 
@@ -48,3 +50,4 @@ Thumbs.db
 
 # ─── Alembic ─────────────────────────────────────────────────
 alembic/versions/*.py
+!alembic/versions/0001_initial_schema.py
