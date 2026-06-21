@@ -32,9 +32,9 @@ yarn-error.log*
 # ─── Docker ──────────────────────────────────────────────────
 *.log
 
-# ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+# ─── Dados gerados (apenas no nível raiz) ────────────────────
+/attachments/
+/logs/
 *.sqlite3
 *.db
 
@@ -45,6 +45,4 @@ logs/
 *.swo
 .DS_Store
 Thumbs.db
-
-# ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py
+frontend/tsconfig.tsbuildinfo

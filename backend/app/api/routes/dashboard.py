@@ -113,12 +113,16 @@ async def get_notifications(
     return [
         {
             "id": n.id,
+            "email_id": n.email_id,
             "channel": n.channel.value if n.channel else "whatsapp",
             "recipient": n.recipient,
+            "message_body": n.message_body[:300] + "..." if n.message_body and len(n.message_body) > 300 else (n.message_body or ""),
             "status": n.status.value if n.status else "pendente",
             "sent_at": n.sent_at.isoformat() if n.sent_at else None,
-            "error_message": n.error_message,
+            "error_message": n.error_message or "",
             "retry_count": n.retry_count,
+            "external_id": n.external_id or "",
+            "created_at": n.created_at.isoformat() if n.created_at else None,
         }
         for n in logs
     ]
@@ -183,13 +187,17 @@ def _serialize_email(e: EmailRecord) -> Dict[str, Any]:
         "subject": e.subject,
         "sender_email": e.sender_email,
         "sender_name": e.sender_name,
+        "body_preview": e.body_preview or "",
         "received_at": e.received_at.isoformat() if e.received_at else None,
+        "processed_at": e.processed_at.isoformat() if e.processed_at else None,
         "priority": e.priority.value if e.priority else "BAIXO",
         "category": e.category,
-        "ai_summary": e.ai_summary,
+        "ai_summary": e.ai_summary or "",
         "has_attachments": e.has_attachments,
         "attachment_count": e.attachment_count,
         "whatsapp_sent": e.whatsapp_sent,
+        "whatsapp_sent_at": e.whatsapp_sent_at.isoformat() if e.whatsapp_sent_at else None,
         "action_required": e.action_required,
+        "is_spam": e.is_spam,
         "processing_time_ms": e.processing_time_ms,
     }
