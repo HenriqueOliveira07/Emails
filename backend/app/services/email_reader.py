@@ -41,9 +41,8 @@ class MSALAuthenticator:
 
         self._token = result["access_token"]
         expires_in = result.get("expires_in", 3600)
-        self._token_expiry = datetime.now(timezone.utc).replace(
-            second=datetime.now(timezone.utc).second + expires_in
-        )
+        from datetime import timedelta
+        self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
         logger.info("msal_token_acquired", expires_in=expires_in)
         return self._token
 

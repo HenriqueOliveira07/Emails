@@ -1,11 +1,12 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import {
-  fetchStats, fetchRecentEmails, fetchNotifications,
+  fetchStats, fetchRecentEmails, fetchNotifications, fetchWeeklyStats,
   DashboardStats,
 } from "@/lib/api";
 import { StatsCard } from "@/components/Dashboard/StatsCard";
 import { PriorityChart } from "@/components/Dashboard/PriorityChart";
+import { WeeklyChart } from "@/components/Dashboard/WeeklyChart";
 import { EmailTable } from "@/components/Dashboard/EmailTable";
 import { NotificationLog } from "@/components/Dashboard/NotificationLog";
 import { Sidebar } from "@/components/Layout/Sidebar";
@@ -31,6 +32,12 @@ export default function DashboardPage() {
     queryKey: ["notifications"],
     queryFn: () => fetchNotifications(20),
     refetchInterval: 30_000,
+  });
+
+  const { data: weeklyData } = useQuery({
+    queryKey: ["weekly-stats"],
+    queryFn: fetchWeeklyStats,
+    refetchInterval: 300_000,
   });
 
   return (
@@ -97,11 +104,16 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Chart + Notifications */}
-          <div className="grid lg:grid-cols-2 gap-6">
+          {/* Charts */}
+          <div className="grid lg:grid-cols-3 gap-6">
             <PriorityChart data={stats?.by_priority ?? {}} />
-            <NotificationLog notifications={notifications ?? []} />
+            <div className="lg:col-span-2">
+              <WeeklyChart data={weeklyData ?? []} />
+            </div>
           </div>
+
+          {/* Notifications */}
+          <NotificationLog notifications={notifications ?? []} />
 
           {/* Email Table */}
           {loadingEmails ? (

@@ -176,6 +176,43 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     return status
 
 
+@router.get("/weekly-stats")
+async def get_weekly_stats(db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Estatísticas dos últimos 7 dias para gráfico de histórico."""
+    from datetime import timedelta
+
+    result = []
+    today = date.today()
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_start = datetime.combine(day, datetime.min.time()).replace(tzinfo=timezone.utc)
+        day_end = datetime.combine(day, datetime.max.time()).replace(tzinfo=timezone.utc)
+
+        total = (await db.execute(
+            select(func.count(EmailRecord.id)).where(
+                EmailRecord.processed_at >= day_start,
+                EmailRecord.processed_at <= day_end,
+                EmailRecord.is_spam == False,  # noqa: E712
+            )
+        )).scalar() or 0
+
+        critical = (await db.execute(
+            select(func.count(EmailRecord.id)).where(
+                EmailRecord.processed_at >= day_start,
+                EmailRecord.processed_at <= day_end,
+                EmailRecord.priority == PriorityLevel.CRITICAL,
+            )
+        )).scalar() or 0
+
+        result.append({
+            "date": day.isoformat(),
+            "day": day.strftime("%d/%m"),
+            "total": total,
+            "critical": critical,
+        })
+    return result
+
+
 def _serialize_email(e: EmailRecord) -> Dict[str, Any]:
     return {
         "id": e.id,
