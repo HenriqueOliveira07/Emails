@@ -4,7 +4,7 @@ import { Paperclip, MessageCircle, AlertCircle, ChevronDown, ChevronUp } from "l
 import { clsx } from "clsx";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 const PRIORITY_LABEL: Record<string, string> = {
   CRITICO: "CRÍTICO",
@@ -47,9 +47,8 @@ export function EmailTable({ emails }: EmailTableProps) {
               </tr>
             )}
             {emails.map((email) => (
-              <>
+              <Fragment key={email.id}>
                 <tr
-                  key={email.id}
                   className="border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer transition-colors"
                   onClick={() => setExpanded(expanded === email.id ? null : email.id)}
                 >
@@ -98,7 +97,7 @@ export function EmailTable({ emails }: EmailTableProps) {
                   </td>
                 </tr>
                 {expanded === email.id && (
-                  <tr key={`${email.id}-detail`} className="bg-slate-900/50">
+                  <tr className="bg-slate-900/50">
                     <td colSpan={7} className="px-6 py-4">
                       <div className="text-xs text-slate-300 leading-relaxed">
                         <span className="text-slate-500 font-medium">Resumo IA: </span>
@@ -107,7 +106,7 @@ export function EmailTable({ emails }: EmailTableProps) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>

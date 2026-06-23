@@ -52,6 +52,7 @@ async def send_manual_notification(
     """Envia uma notificação WhatsApp manual."""
     from app.config import settings
     from app.services.whatsapp_sender import WhatsAppSender
+    from app.models.notification import NotificationChannel
     from datetime import datetime, timezone
 
     sender = WhatsAppSender()
@@ -60,7 +61,7 @@ async def send_manual_notification(
 
     notif = NotificationLog(
         email_id=body.email_id if body.email_id > 0 else None,
-        channel=__import__("app.models.notification", fromlist=["NotificationChannel"]).NotificationChannel.WHATSAPP,
+        channel=NotificationChannel.WHATSAPP,
         recipient=settings.WHATSAPP_TO_NUMBER,
         message_body=body.message,
         status=NotificationStatus.SENT if result.get("success") else NotificationStatus.FAILED,
