@@ -20,7 +20,7 @@ async def get_settings() -> Dict[str, Any]:
     """Retorna configurações atuais (sem expor credenciais)."""
     return {
         "app_name": settings.APP_NAME,
-        "app_version": settings.APP_VERSION,
+        "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT,
         "check_interval_seconds": settings.CHECK_INTERVAL_SECONDS,
         "max_emails_per_batch": settings.MAX_EMAILS_PER_BATCH,
@@ -28,17 +28,12 @@ async def get_settings() -> Dict[str, Any]:
         "claude_model": settings.CLAUDE_MODEL,
         "whatsapp_provider": settings.WHATSAPP_PROVIDER,
         "log_retention_days": settings.LOG_RETENTION_DAYS,
+        "outlook_email_address": settings.OUTLOOK_EMAIL_ADDRESS or "não configurado",
         "integrations": {
             "outlook_configured": bool(settings.OUTLOOK_CLIENT_ID and settings.OUTLOOK_CLIENT_SECRET),
             "whatsapp_configured": bool(settings.WHATSAPP_TO_NUMBER),
             "claude_configured": bool(settings.ANTHROPIC_API_KEY),
-            "email_address": settings.OUTLOOK_EMAIL_ADDRESS or "não configurado",
             "whatsapp_to": settings.WHATSAPP_TO_NUMBER or "não configurado",
-        },
-        "priority_keywords": {
-            "critical": settings.PRIORITY_CRITICAL_KEYWORDS,
-            "high": settings.PRIORITY_HIGH_KEYWORDS,
-            "medium": settings.PRIORITY_MEDIUM_KEYWORDS,
         },
     }
 
@@ -47,9 +42,9 @@ async def get_settings() -> Dict[str, Any]:
 async def get_keywords() -> Dict[str, Any]:
     """Retorna as palavras-chave de prioridade configuradas."""
     return {
-        "CRITICO": settings.PRIORITY_CRITICAL_KEYWORDS,
-        "ALTO": settings.PRIORITY_HIGH_KEYWORDS,
-        "MEDIO": settings.PRIORITY_MEDIUM_KEYWORDS,
+        "critical": settings.PRIORITY_CRITICAL_KEYWORDS,
+        "high": settings.PRIORITY_HIGH_KEYWORDS,
+        "medium": settings.PRIORITY_MEDIUM_KEYWORDS,
         "spam": settings.SPAM_KEYWORDS,
     }
 
