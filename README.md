@@ -115,13 +115,16 @@ docker compose logs -f celery-worker
 
 Acesse `http://localhost` após iniciar os serviços.
 
-**Funcionalidades:**
-- Estatísticas em tempo real (atualização a cada 30s)
-- Gráfico de distribuição por prioridade
-- Tabela de e-mails com detalhes expandíveis
-- Log de notificações WhatsApp enviadas
-- Indicador de status das integrações
-- Botão "Verificar Agora" para disparo manual
+**Páginas disponíveis:**
+
+| Rota | Descrição |
+|------|-----------|
+| `/dashboard` | Visão geral: estatísticas, gráfico de prioridades, e-mails recentes |
+| `/emails` | Lista completa com filtros por prioridade, anexos e remetente; painel lateral de detalhes com re-classificação IA e alteração de prioridade manual |
+| `/notifications` | Histórico de notificações WhatsApp, envio manual, re-tentativas |
+| `/attachments` | Browser de todos os anexos salvos com metadados, OCR e extração PDF |
+| `/logs` | Log de processamento em tempo real com métricas de duração |
+| `/settings` | Status das integrações, configurações do sistema e ações manuais |
 
 ## API REST
 
