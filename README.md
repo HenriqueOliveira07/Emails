@@ -115,13 +115,13 @@ docker compose logs -f celery-worker
 
 Acesse `http://localhost` após iniciar os serviços.
 
-**Funcionalidades:**
-- Estatísticas em tempo real (atualização a cada 30s)
-- Gráfico de distribuição por prioridade
-- Tabela de e-mails com detalhes expandíveis
-- Log de notificações WhatsApp enviadas
-- Indicador de status das integrações
-- Botão "Verificar Agora" para disparo manual
+**Páginas:**
+- **Dashboard** — Estatísticas em tempo real, gráfico de prioridades, tabela de e-mails, log de notificações
+- **E-mails** — Lista completa com filtros (prioridade, remetente, anexos), reclassificação por IA, paginação
+- **Notificações** — Histórico de WhatsApp enviados/falhos/pendentes, reenvio manual, resumo diário
+- **Anexos** — Browser de anexos com stats (total, tamanho, PDF, OCR), filtros por remetente/tipo
+- **Logs** — Visualizador de logs de processamento com filtros por ação/sucesso, breakdown de ações do dia
+- **Configurações** — Info do sistema, status de integrações, saúde dos serviços, palavras-chave, ações rápidas
 
 ## API REST
 
@@ -134,6 +134,12 @@ GET  /api/dashboard/stats          # Estatísticas do dia
 GET  /api/dashboard/recent-emails  # E-mails recentes
 GET  /api/emails                   # Lista com filtros
 POST /api/emails/{id}/reclassify   # Re-classificar com IA
+GET  /api/attachments              # Lista de anexos com filtros
+GET  /api/attachments/stats        # Estatísticas de anexos
+GET  /api/logs                     # Logs de processamento
+GET  /api/logs/stats               # Estatísticas de logs
+GET  /api/notifications            # Histórico de notificações
+POST /api/notifications/{id}/retry # Reenviar notificação
 GET  /api/dashboard/health         # Status das integrações
 POST /api/settings/trigger-check   # Disparar verificação manual
 POST /api/settings/trigger-summary # Enviar resumo diário
@@ -161,6 +167,21 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 | ALTO | 🟠 | Aprovações, contratos, pagamentos, diretoria | ✅ Imediato |
 | MÉDIO | 🟡 | Fornecedores, clientes, pendências | ❌ |
 | BAIXO | 🟢 | Informativos, atualizações rotineiras | ❌ |
+
+## Migrações de Banco de Dados
+
+O projeto usa Alembic (async) para migrações:
+
+```bash
+# Rodar migrações
+docker compose exec backend alembic upgrade head
+
+# Criar nova migração
+docker compose exec backend alembic revision --autogenerate -m "descricao"
+
+# Ver migração atual
+docker compose exec backend alembic current
+```
 
 ## Comandos Úteis
 
