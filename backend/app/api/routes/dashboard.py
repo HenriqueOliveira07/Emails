@@ -113,11 +113,15 @@ async def get_notifications(
     return [
         {
             "id": n.id,
+            "email_id": n.email_id,
             "channel": n.channel.value if n.channel else "whatsapp",
             "recipient": n.recipient,
+            "message_body": n.message_body,
             "status": n.status.value if n.status else "pendente",
             "sent_at": n.sent_at.isoformat() if n.sent_at else None,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
             "error_message": n.error_message,
+            "external_id": n.external_id,
             "retry_count": n.retry_count,
         }
         for n in logs
@@ -163,11 +167,15 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
 
     # Redis
     try:
-        import redis as redis_lib
-        r = redis_lib.from_url(
-            __import__("app.config", fromlist=["settings"]).settings.REDIS_URL
-        )
-        r.ping()
+        import redis.asyncio as redis_lib
+
+        from app.config import settings
+
+        r = redis_lib.from_url(settings.REDIS_URL)
+        try:
+            await r.ping()
+        finally:
+            await r.aclose()
         status["services"]["redis"] = {"status": "ok"}
     except Exception as e:
         status["services"]["redis"] = {"status": "error", "error": str(e)}

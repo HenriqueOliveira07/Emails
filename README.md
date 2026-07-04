@@ -162,6 +162,21 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 | MÉDIO | 🟡 | Fornecedores, clientes, pendências | ❌ |
 | BAIXO | 🟢 | Informativos, atualizações rotineiras | ❌ |
 
+## Migrações de Banco de Dados
+
+O schema é criado automaticamente (`create_all`) na subida do backend. Para ambientes que preferem migrações versionadas com Alembic:
+
+```bash
+# Aplicar todas as migrações
+docker compose exec backend alembic upgrade head
+
+# Gerar uma nova migração após alterar um model
+docker compose exec backend alembic revision --autogenerate -m "descricao da mudanca"
+
+# Reverter a última migração
+docker compose exec backend alembic downgrade -1
+```
+
 ## Comandos Úteis
 
 ```bash
