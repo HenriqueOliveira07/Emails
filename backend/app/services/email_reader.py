@@ -2,7 +2,7 @@
 Leitura de e-mails via Microsoft Graph API com autenticação MSAL.
 """
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -10,6 +10,7 @@ import msal
 import structlog
 
 from app.config import settings
+from app.utils.sanitizer import html_to_text
 
 logger = structlog.get_logger(__name__)
 
@@ -41,9 +42,7 @@ class MSALAuthenticator:
 
         self._token = result["access_token"]
         expires_in = result.get("expires_in", 3600)
-        self._token_expiry = datetime.now(timezone.utc).replace(
-            second=datetime.now(timezone.utc).second + expires_in
-        )
+        self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
         logger.info("msal_token_acquired", expires_in=expires_in)
         return self._token
 
@@ -131,6 +130,8 @@ class OutlookEmailReader:
         ]
         body_content = raw.get("body", {}).get("content", "")
         body_type = raw.get("body", {}).get("contentType", "text")
+        if body_type.lower() == "html":
+            body_content = html_to_text(body_content)
 
         received_str = raw.get("receivedDateTime", "")
         try:

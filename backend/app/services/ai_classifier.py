@@ -2,12 +2,14 @@
 Classificação inteligente de e-mails usando Claude API.
 """
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import anthropic
 import structlog
 
 from app.config import settings
+from app.utils.sanitizer import is_spam_sender
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +62,10 @@ REGRAS DE PRIORIDADE:
 - MEDIO: fornecedores, clientes, pendências gerais, solicitações, relatórios, orçamentos
 - BAIXO: informativos, newsletters, respostas automáticas, atualizações rotineiras
 
+Um e-mail recebido fora do horário comercial (indicado no contexto abaixo) que já se
+qualificaria como ALTO deve ser elevado para CRITICO, pois indica maior urgência
+(alguém enviando fora do expediente normalmente precisa de resposta rápida).
+
 SPAM/IGNORAR:
 - Newsletters e marketing
 - Respostas automáticas ("Fora do escritório", "Auto-reply")
@@ -91,12 +97,27 @@ class AIClassifier:
         has_attachments = email_data.get("has_attachments", False)
         importance = email_data.get("importance", "normal")
 
+        if sender and is_spam_sender(sender, []):
+            logger.info("email_classified_spam_sender", sender=sender, subject=subject[:60])
+            return {
+                "priority": "BAIXO",
+                "category": "Spam/Newsletter",
+                "summary": "Remetente identificado como automático/marketing (noreply, newsletter etc.).",
+                "keywords_found": [],
+                "is_spam": True,
+                "action_required": False,
+                "action_description": "",
+            }
+
+        business_hours = self._is_business_hours(email_data.get("received_at"))
+
         user_message = f"""E-mail para classificar:
 
 Remetente: {sender_name} <{sender}>
 Assunto: {subject}
 Importância (sistema): {importance}
 Possui anexos: {"Sim" if has_attachments else "Não"}
+Recebido em horário comercial: {"Sim" if business_hours else "Não (fora do expediente)"}
 
 Corpo:
 {body_trimmed}
@@ -130,8 +151,27 @@ Classifique este e-mail."""
 
         return self._fallback_classification(email_data)
 
+    @staticmethod
+    def _is_business_hours(received_at: Optional[datetime]) -> bool:
+        """Verifica se o horário de recebimento está dentro do expediente configurado."""
+        if not isinstance(received_at, datetime):
+            return True
+        hour = received_at.astimezone(timezone.utc).hour
+        return settings.BUSINESS_HOURS_START <= hour < settings.BUSINESS_HOURS_END
+
     def _fallback_classification(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
         """Classificação por palavras-chave caso a API falhe."""
+        if email_data.get("sender_email") and is_spam_sender(email_data["sender_email"], []):
+            return {
+                "priority": "BAIXO",
+                "category": "Spam/Newsletter",
+                "summary": "Remetente identificado como automático/marketing (noreply, newsletter etc.).",
+                "keywords_found": [],
+                "is_spam": True,
+                "action_required": False,
+                "action_description": "",
+            }
+
         text = (
             (email_data.get("subject", "") + " " + email_data.get("body_preview", "")).lower()
         )
@@ -156,11 +196,13 @@ Classifique este e-mail."""
         found_high = [kw for kw in high_kws if kw in text]
         found_medium = [kw for kw in medium_kws if kw in text]
 
+        business_hours = self._is_business_hours(email_data.get("received_at"))
+
         if found_critical:
             priority = "CRITICO"
             keywords = found_critical
         elif found_high:
-            priority = "ALTO"
+            priority = "ALTO" if business_hours else "CRITICO"
             keywords = found_high
         elif found_medium:
             priority = "MEDIO"

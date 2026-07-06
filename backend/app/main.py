@@ -1,6 +1,7 @@
 """
 Aplicação FastAPI principal — Sistema de Monitoramento de E-mails.
 """
+import hmac
 import time
 from contextlib import asynccontextmanager
 
@@ -14,10 +15,18 @@ from app.db.database import create_tables
 
 logger = structlog.get_logger(__name__)
 
+# Rotas acessíveis sem X-API-Key (health check e documentação pública)
+_PUBLIC_PATHS = {"/api/health", "/api/docs", "/api/redoc", "/api/openapi.json"}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Iniciando sistema de monitoramento de e-mails...")
+    if not settings.API_KEY:
+        logger.warning(
+            "api_key_not_set",
+            message="API_KEY não configurada — endpoints ficarão acessíveis sem autenticação.",
+        )
     await create_tables()
     logger.info("Tabelas criadas/verificadas com sucesso")
     yield
@@ -41,6 +50,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    """Exige o header X-API-Key em todas as rotas /api/*, exceto as públicas."""
+    path = request.url.path
+    if settings.API_KEY and path.startswith("/api") and path not in _PUBLIC_PATHS:
+        provided = request.headers.get("x-api-key", "")
+        if not hmac.compare_digest(provided, settings.API_KEY):
+            return JSONResponse(status_code=401, content={"detail": "API key inválida ou ausente"})
+    return await call_next(request)
 
 
 @app.middleware("http")

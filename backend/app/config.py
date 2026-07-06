@@ -37,6 +37,13 @@ class Settings(BaseSettings):
         description="Chave Fernet base64 para criptografia de credenciais",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    API_KEY: str = Field(
+        default="",
+        description=(
+            "Chave exigida no header X-API-Key para acessar a API/painel. "
+            "Se vazia, a API fica sem autenticação (apenas para desenvolvimento local)."
+        ),
+    )
 
     # -------------------------------------------------------------------------
     # Banco de Dados PostgreSQL
@@ -149,6 +156,12 @@ class Settings(BaseSettings):
     MAX_EMAILS_PER_BATCH: int = Field(
         default=25,
         description="Número máximo de e-mails processados por ciclo",
+    )
+    BUSINESS_HOURS_START: int = Field(
+        default=8, description="Hora de início do expediente (0-23, horário local)"
+    )
+    BUSINESS_HOURS_END: int = Field(
+        default=19, description="Hora de fim do expediente (0-23, horário local)"
     )
     ATTACHMENTS_BASE_PATH: str = Field(
         default="/app/attachments",

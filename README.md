@@ -162,6 +162,10 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 | MÉDIO | 🟡 | Fornecedores, clientes, pendências | ❌ |
 | BAIXO | 🟢 | Informativos, atualizações rotineiras | ❌ |
 
+E-mails com palavras-chave de prioridade ALTO recebidos fora do horário comercial
+(configurável via `BUSINESS_HOURS_START`/`BUSINESS_HOURS_END`, padrão 08h-19h) são
+automaticamente escalados para CRÍTICO, já que indicam maior urgência.
+
 ## Comandos Úteis
 
 ```bash
@@ -186,9 +190,11 @@ open http://localhost:5555
 
 ## Segurança e LGPD
 
-- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
+- Autenticação obrigatória via header `X-API-Key` em todas as rotas `/api/*` (exceto `/api/health` e docs) quando `API_KEY` está definida no `.env`
+- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256) — utilitário em `app/utils/crypto.py`
 - Tokens JWT com expiração configurável
-- Validação de tipos de arquivo (bloqueio de executáveis)
+- Validação de anexos em duas camadas: lista branca de extensões permitidas (`ALLOWED_EXTENSIONS`) e verificação de assinatura binária real (magic bytes) para bloquear executáveis disfarçados com extensão de documento (ex: `.exe` renomeado para `.pdf`)
+- Anexos bloqueados são registrados no log de auditoria com o motivo da rejeição
 - Logs de auditoria completos com retenção configurável
 - Sem armazenamento de senhas em texto plano
 - Conexões PostgreSQL com pool e timeout
@@ -205,6 +211,7 @@ WHATSAPP_TO_NUMBER         # Seu número WhatsApp
 TWILIO_ACCOUNT_SID         # Twilio Account SID
 TWILIO_AUTH_TOKEN          # Twilio Auth Token
 WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
+API_KEY                    # Chave para autenticar chamadas à API (header X-API-Key)
 ```
 
 ## Tecnologias

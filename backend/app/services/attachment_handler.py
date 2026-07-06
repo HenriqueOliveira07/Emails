@@ -29,6 +29,16 @@ DANGEROUS_EXTENSIONS = {
     ".js", ".jar", ".msi", ".scr", ".pif", ".com",
 }
 
+# Assinaturas binárias (magic bytes) de executáveis — verificadas independente
+# da extensão declarada, para detectar arquivos disfarçados (ex: "fatura.pdf"
+# que na verdade é um .exe renomeado).
+_MALICIOUS_SIGNATURES: List[Tuple[bytes, str]] = [
+    (b"MZ", "Executável Windows (PE/MZ)"),
+    (b"\x7fELF", "Executável Linux (ELF)"),
+    (b"#!/", "Script com shebang executável"),
+    (b"\xca\xfe\xba\xbe", "Executável Mach-O/Java class"),
+]
+
 
 class AttachmentHandler:
     """Gerencia o salvamento e processamento de anexos de e-mail."""
@@ -88,11 +98,22 @@ class AttachmentHandler:
         return new_name
 
     def _is_extension_allowed(self, filename: str) -> Tuple[bool, str]:
-        """Verifica se a extensão é permitida e não é perigosa."""
+        """Verifica se a extensão está na lista branca e não é perigosa."""
         ext = Path(filename).suffix.lower()
         if ext in DANGEROUS_EXTENSIONS:
             return False, f"Extensão perigosa: {ext}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Tipo de arquivo não permitido: {ext or '(sem extensão)'}"
         return True, ""
+
+    @staticmethod
+    def _detect_malicious_content(content: bytes) -> Tuple[bool, str]:
+        """Verifica a assinatura binária real do arquivo, independente da extensão declarada."""
+        head = content[:8]
+        for signature, description in _MALICIOUS_SIGNATURES:
+            if head.startswith(signature):
+                return True, description
+        return False, ""
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
         """Extrai o conteúdo binário de um anexo da Graph API."""
@@ -106,14 +127,18 @@ class AttachmentHandler:
 
     async def save_attachments(
         self, email_data: Dict[str, Any], attachments: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
-        Salva todos os anexos e retorna metadados de cada um.
+        Salva todos os anexos permitidos e retorna metadados de cada um.
 
         Returns:
-            Lista de dicts com filename, file_path, file_size, file_type, ocr_text, pdf_text
+            Tupla (saved, blocked). `saved` contém dicts com filename, file_path,
+            file_size, file_type, ocr_text, pdf_text. `blocked` contém dicts com
+            filename e reason para anexos rejeitados (tipo não permitido, tamanho
+            excedido ou assinatura maliciosa detectada).
         """
-        saved = []
+        saved: List[Dict[str, Any]] = []
+        blocked: List[Dict[str, Any]] = []
         dest_dir = self._build_path(email_data)
 
         for att in attachments:
@@ -123,6 +148,7 @@ class AttachmentHandler:
 
             if content is None:
                 logger.warning("attachment_no_content", filename=original_name)
+                blocked.append({"filename": original_name, "reason": "Sem conteúdo"})
                 continue
 
             if len(content) > self._max_size_bytes:
@@ -131,11 +157,23 @@ class AttachmentHandler:
                     filename=original_name,
                     size_mb=len(content) / 1024 / 1024,
                 )
+                blocked.append({"filename": original_name, "reason": "Tamanho excedido"})
                 continue
 
             allowed, reason = self._is_extension_allowed(original_name)
             if not allowed:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
+                blocked.append({"filename": original_name, "reason": reason})
+                continue
+
+            is_malicious, malicious_reason = self._detect_malicious_content(content)
+            if is_malicious:
+                logger.warning(
+                    "attachment_malicious_signature",
+                    filename=original_name,
+                    reason=malicious_reason,
+                )
+                blocked.append({"filename": original_name, "reason": f"Conteúdo malicioso: {malicious_reason}"})
                 continue
 
             safe_name = self._sanitize_filename(original_name)
@@ -172,9 +210,10 @@ class AttachmentHandler:
                 "pdf_text": pdf_text,
                 "invoice_data": invoice_data,
                 "is_malicious": False,
+                "scan_result": "ok",
             })
 
-        return saved
+        return saved, blocked
 
     @staticmethod
     def _extract_pdf_text(file_path: Path) -> str:

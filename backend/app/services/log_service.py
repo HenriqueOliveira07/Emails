@@ -81,6 +81,11 @@ class LogService:
         logger.info("attachment_saved", **details)
         await self._persist("attachment_saved", details, None, True)
 
+    async def log_attachment_blocked(self, email_id: int, filename: str, reason: str) -> None:
+        details = {"email_id": email_id, "filename": filename, "reason": reason}
+        logger.warning("attachment_blocked", **details)
+        await self._persist("attachment_blocked", details, None, False, error_msg=reason)
+
     async def log_whatsapp_sent(
         self, email_id: int, recipient: str, priority: str, success: bool,
         external_id: str = "", error: str = ""

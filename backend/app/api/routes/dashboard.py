@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.database import get_db
 from app.models.email import EmailAttachment, EmailRecord, PriorityLevel
 from app.models.notification import NotificationLog, NotificationStatus, ProcessingLog
@@ -164,13 +165,35 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     # Redis
     try:
         import redis as redis_lib
-        r = redis_lib.from_url(
-            __import__("app.config", fromlist=["settings"]).settings.REDIS_URL
-        )
+        r = redis_lib.from_url(settings.REDIS_URL)
         r.ping()
         status["services"]["redis"] = {"status": "ok"}
     except Exception as e:
         status["services"]["redis"] = {"status": "error", "error": str(e)}
+        status["overall"] = "degraded"
+
+    # Integrações externas (verificação de configuração, sem chamadas de API)
+    outlook_configured = bool(
+        settings.OUTLOOK_CLIENT_ID and settings.OUTLOOK_CLIENT_SECRET and settings.OUTLOOK_TENANT_ID
+    )
+    status["services"]["outlook"] = {
+        "status": "ok" if outlook_configured else "not_configured",
+    }
+    if not outlook_configured:
+        status["overall"] = "degraded"
+
+    claude_configured = bool(settings.ANTHROPIC_API_KEY)
+    status["services"]["claude"] = {"status": "ok" if claude_configured else "not_configured"}
+    if not claude_configured:
+        status["overall"] = "degraded"
+
+    whatsapp_configured = bool(settings.WHATSAPP_TO_NUMBER) and (
+        bool(settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN)
+        if settings.WHATSAPP_PROVIDER.lower() == "twilio"
+        else bool(settings.META_WHATSAPP_PHONE_NUMBER_ID and settings.META_WHATSAPP_ACCESS_TOKEN)
+    )
+    status["services"]["whatsapp"] = {"status": "ok" if whatsapp_configured else "not_configured"}
+    if not whatsapp_configured:
         status["overall"] = "degraded"
 
     return status

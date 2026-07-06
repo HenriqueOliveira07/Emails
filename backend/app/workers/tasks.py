@@ -108,9 +108,26 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                 if parsed.get("has_attachments"):
                     try:
                         raw_attachments = await reader.get_attachments(message_id)
-                        attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
+                        attachments_data, blocked_attachments = await att_handler.save_attachments(
+                            parsed, raw_attachments
+                        )
+                        for blocked in blocked_attachments:
+                            await log_svc.log_attachment_blocked(
+                                None, blocked["filename"], blocked["reason"]
+                            )
                     except Exception as e:
                         logger.warning("attachment_processing_failed", error=str(e))
+
+                    # Resumo por IA e extração de dados financeiros para PDFs/imagens com texto
+                    for att in attachments_data:
+                        extracted_text = att.get("pdf_text") or att.get("ocr_text") or ""
+                        if len(extracted_text) < 50:
+                            continue
+                        try:
+                            att["ai_summary"] = classifier.summarize_pdf(extracted_text)
+                            att["invoice_data"] = classifier.extract_invoice_data(extracted_text)
+                        except Exception as e:
+                            logger.warning("attachment_ai_enrichment_failed", error=str(e))
 
                 # Mapeamento de prioridade
                 priority_map = {
@@ -159,7 +176,10 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         file_type=att["file_type"],
                         ocr_text=att.get("ocr_text", ""),
                         pdf_text=att.get("pdf_text", ""),
+                        ai_summary=att.get("ai_summary", ""),
                         invoice_data=att.get("invoice_data", {}),
+                        is_malicious=att.get("is_malicious", False),
+                        scan_result=att.get("scan_result", ""),
                     )
                     db.add(att_record)
                     stats["attachments_saved"] += 1
