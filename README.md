@@ -184,6 +184,18 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Migrações de Banco de Dados
+
+O schema é versionado com Alembic (`backend/alembic/`). Ao subir os serviços pela primeira vez, o backend já cria as tabelas automaticamente (conveniência de desenvolvimento). Em produção, prefira gerenciar o schema explicitamente via migrações:
+
+```bash
+# Aplicar todas as migrações pendentes
+docker compose exec backend alembic upgrade head
+
+# Gerar uma nova migração após alterar um model
+docker compose exec backend alembic revision --autogenerate -m "descricao_da_mudanca"
+```
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
@@ -212,7 +224,7 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |
