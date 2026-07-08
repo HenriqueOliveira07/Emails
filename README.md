@@ -127,6 +127,8 @@ Acesse `http://localhost` após iniciar os serviços.
 
 Documentação completa: `http://localhost:8000/api/docs`
 
+Todos os endpoints (exceto `/api/health`) exigem o header `X-API-Key` quando a variável `API_KEY` estiver definida no `.env`. O dashboard já envia esse header automaticamente via `NEXT_PUBLIC_API_KEY` (repassada como build arg no `docker-compose.yml`).
+
 Principais endpoints:
 
 ```
@@ -186,11 +188,11 @@ open http://localhost:5555
 
 ## Segurança e LGPD
 
-- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
-- Tokens JWT com expiração configurável
-- Validação de tipos de arquivo (bloqueio de executáveis)
+- API protegida por chave (header `X-API-Key`), configurável via `API_KEY` no `.env` — deixe vazio apenas em desenvolvimento local
+- Utilitário de criptografia Fernet (`app/utils/crypto.py`) disponível para cifrar segredos que venham a ser persistidos no banco (`ENCRYPTION_KEY`)
+- Credenciais de integração (Outlook, Anthropic, Twilio/Meta) ficam apenas em variáveis de ambiente — nunca são persistidas no banco de dados
+- Validação de tipos de arquivo (bloqueio de executáveis) nos anexos salvos
 - Logs de auditoria completos com retenção configurável
-- Sem armazenamento de senhas em texto plano
 - Conexões PostgreSQL com pool e timeout
 
 ## Variáveis de Ambiente Obrigatórias
@@ -201,6 +203,7 @@ OUTLOOK_CLIENT_SECRET      # Azure App Secret
 OUTLOOK_TENANT_ID          # Azure Tenant ID
 OUTLOOK_EMAIL_ADDRESS      # E-mail a monitorar
 ANTHROPIC_API_KEY          # Claude API
+API_KEY                    # Chave exigida no header X-API-Key (deixe vazio só em dev local)
 WHATSAPP_TO_NUMBER         # Seu número WhatsApp
 TWILIO_ACCOUNT_SID         # Twilio Account SID
 TWILIO_AUTH_TOKEN          # Twilio Auth Token

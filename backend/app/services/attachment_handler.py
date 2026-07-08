@@ -39,7 +39,7 @@ class AttachmentHandler:
         self._max_size_bytes = settings.MAX_ATTACHMENT_SIZE_MB * 1024 * 1024
 
     def _build_path(self, email_data: Dict[str, Any]) -> Path:
-        """Constrói o caminho de destino: /base/YYYY/MM/DD/Remetente/"""
+        """Constrói o caminho de destino: /base/Emails_Importantes/YYYY/MM/DD/Remetente/"""
         received_at: datetime = email_data.get("received_at") or datetime.now(timezone.utc)
         sender_email: str = email_data.get("sender_email", "desconhecido")
         sender_name: str = email_data.get("sender_name", "")
@@ -49,6 +49,7 @@ class AttachmentHandler:
 
         path = (
             self._base
+            / "Emails_Importantes"
             / str(received_at.year)
             / f"{received_at.month:02d}"
             / f"{received_at.day:02d}"

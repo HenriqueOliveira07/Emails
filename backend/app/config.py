@@ -37,6 +37,10 @@ class Settings(BaseSettings):
         description="Chave Fernet base64 para criptografia de credenciais",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    API_KEY: str = Field(
+        default="",
+        description="Chave exigida no header X-API-Key para acessar a API. Vazio desabilita a checagem (apenas dev).",
+    )
 
     # -------------------------------------------------------------------------
     # Banco de Dados PostgreSQL
