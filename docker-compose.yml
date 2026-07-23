@@ -130,6 +130,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ""
     container_name: emails_frontend
     restart: unless-stopped
     environment:

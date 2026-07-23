@@ -62,5 +62,53 @@ export const fetchHealth = () => api.get("/dashboard/health").then((r) => r.data
 
 export const triggerCheck = () => api.post("/settings/trigger-check").then((r) => r.data);
 
-export const fetchEmails = (params?: Record<string, string | number | boolean>) =>
+export const fetchEmails = (
+  params?: Record<string, string | number | boolean>
+): Promise<{ items: EmailItem[]; limit: number; offset: number }> =>
   api.get("/emails", { params }).then((r) => r.data);
+
+export const fetchNotificationsList = (limit = 50): Promise<NotificationItem[]> =>
+  api.get("/notifications", { params: { limit } }).then((r) => r.data);
+
+export interface ProcessingLogItem {
+  id: number;
+  action: string;
+  success: boolean;
+  duration_ms: number | null;
+  timestamp: string;
+  error_type: string | null;
+  error_message: string | null;
+  details: Record<string, unknown> | null;
+}
+
+export const fetchProcessingLogs = (limit = 50): Promise<ProcessingLogItem[]> =>
+  api.get("/dashboard/processing-logs", { params: { limit } }).then((r) => r.data);
+
+export interface SystemSettings {
+  app_name: string;
+  app_version: string;
+  environment: string;
+  check_interval_seconds: number;
+  max_emails_per_batch: number;
+  max_attachment_size_mb: number;
+  claude_model: string;
+  whatsapp_provider: string;
+  log_retention_days: number;
+  integrations: {
+    outlook_configured: boolean;
+    whatsapp_configured: boolean;
+    claude_configured: boolean;
+    email_address: string;
+    whatsapp_to: string;
+  };
+  priority_keywords: {
+    critical: string[];
+    high: string[];
+    medium: string[];
+  };
+}
+
+export const fetchSettings = (): Promise<SystemSettings> =>
+  api.get("/settings").then((r) => r.data);
+
+export const triggerDailySummary = () => api.post("/settings/trigger-summary").then((r) => r.data);
