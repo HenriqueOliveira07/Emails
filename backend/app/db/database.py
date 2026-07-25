@@ -48,7 +48,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def create_tables() -> None:
-    """Cria todas as tabelas no banco de dados."""
+    """Bootstrap idempotente para ambientes novos (ex.: primeira execução em dev).
+
+    Em produção, o controle de schema é feito via Alembic
+    (`alembic upgrade head`, ver backend/alembic/); este `create_all`
+    apenas garante que as tabelas existam caso as migrations ainda não
+    tenham sido aplicadas.
+    """
     # Importa os modelos para garantir que estão registrados
     from app.models.email import EmailRecord, EmailAttachment  # noqa: F401
     from app.models.notification import NotificationLog, ProcessingLog  # noqa: F401

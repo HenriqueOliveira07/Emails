@@ -141,17 +141,23 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 
 ## Organização de Anexos
 
+Caminho base definido por `ATTACHMENTS_BASE_PATH` (padrão `/app/Emails_Importantes`, montado no volume `attachments_data`):
+
 ```
-/app/attachments/
-└── Emails_Importantes/
-    └── 2026/
-        └── 05/
-            └── 27/
-                └── Financeiro_Empresa/
-                    ├── boleto_maio_2026.pdf
-                    ├── contrato_fornecedor_abc6f2.docx
-                    └── nf_12345.xml
+/app/Emails_Importantes/
+└── 2026/
+    └── 05/
+        └── 27/
+            └── Financeiro_Empresa/
+                ├── boleto_maio_2026.pdf
+                ├── contrato_fornecedor_abc6f2.docx
+                └── nf_12345.xml
 ```
+
+PDFs e imagens têm texto extraído automaticamente (PyPDF2/OCR via Tesseract);
+documentos identificados como boleto/fatura/nota fiscal têm dados
+estruturados (valor, vencimento, emitente, CNPJ/CPF) extraídos pela IA e
+salvos junto ao registro do anexo.
 
 ## Prioridades
 
@@ -182,16 +188,27 @@ docker compose up -d --scale celery-worker=3
 
 # Ver tarefas no Flower
 open http://localhost:5555
+
+# Aplicar migrations de banco (produção)
+docker compose exec backend alembic upgrade head
+
+# Criar nova migration a partir dos modelos
+docker compose exec backend alembic revision --autogenerate -m "descricao"
 ```
 
 ## Segurança e LGPD
 
-- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
+- API protegida por chave compartilhada (`API_ACCESS_KEY`, header `X-API-Key`) — configure-a em produção; veja `.env.example`
+- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256) via `app/utils/crypto.py`
 - Tokens JWT com expiração configurável
 - Validação de tipos de arquivo (bloqueio de executáveis)
 - Logs de auditoria completos com retenção configurável
 - Sem armazenamento de senhas em texto plano
 - Conexões PostgreSQL com pool e timeout
+
+Detalhes completos de arquitetura, fluxo de dados e controles de segurança:
+[`docs/ARQUITETURA.md`](docs/ARQUITETURA.md). Fluxograma operacional
+detalhado do ciclo de processamento: [`docs/FLUXOGRAMA_OPERACIONAL.md`](docs/FLUXOGRAMA_OPERACIONAL.md).
 
 ## Variáveis de Ambiente Obrigatórias
 
@@ -206,6 +223,8 @@ TWILIO_ACCOUNT_SID         # Twilio Account SID
 TWILIO_AUTH_TOKEN          # Twilio Auth Token
 WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 ```
+
+Recomendado em produção: `API_ACCESS_KEY` (protege a API/dashboard com o header `X-API-Key`; sem ela, o acesso fica aberto).
 
 ## Tecnologias
 

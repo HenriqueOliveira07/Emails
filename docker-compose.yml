@@ -47,10 +47,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_BACKEND: redis://redis:6379/1
-      ATTACHMENTS_BASE_PATH: /app/attachments
+      ATTACHMENTS_BASE_PATH: /app/Emails_Importantes
       LOGS_BASE_PATH: /app/logs
+      API_ACCESS_KEY: ${API_ACCESS_KEY:-}
     volumes:
-      - attachments_data:/app/attachments
+      - attachments_data:/app/Emails_Importantes
       - logs_data:/app/logs
     ports:
       - "8000:8000"
@@ -75,10 +76,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_BACKEND: redis://redis:6379/1
-      ATTACHMENTS_BASE_PATH: /app/attachments
+      ATTACHMENTS_BASE_PATH: /app/Emails_Importantes
       LOGS_BASE_PATH: /app/logs
     volumes:
-      - attachments_data:/app/attachments
+      - attachments_data:/app/Emails_Importantes
       - logs_data:/app/logs
     depends_on:
       - backend
@@ -130,10 +131,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_API_KEY: ${API_ACCESS_KEY:-}
     container_name: emails_frontend
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ""
+      NEXT_PUBLIC_API_KEY: ${API_ACCESS_KEY:-}
     ports:
       - "3000:3000"
     depends_on:
