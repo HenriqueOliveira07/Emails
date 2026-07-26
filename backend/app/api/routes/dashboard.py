@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.database import get_db
 from app.models.email import EmailAttachment, EmailRecord, PriorityLevel
 from app.models.notification import NotificationLog, NotificationStatus, ProcessingLog
@@ -164,9 +165,7 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     # Redis
     try:
         import redis as redis_lib
-        r = redis_lib.from_url(
-            __import__("app.config", fromlist=["settings"]).settings.REDIS_URL
-        )
+        r = redis_lib.from_url(settings.REDIS_URL)
         r.ping()
         status["services"]["redis"] = {"status": "ok"}
     except Exception as e:
