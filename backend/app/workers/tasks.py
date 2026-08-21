@@ -109,6 +109,10 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     try:
                         raw_attachments = await reader.get_attachments(message_id)
                         attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
+                        for att in attachments_data:
+                            extracted_text = att.get("pdf_text") or att.get("ocr_text")
+                            if extracted_text:
+                                att["invoice_data"] = classifier.extract_invoice_data(extracted_text)
                     except Exception as e:
                         logger.warning("attachment_processing_failed", error=str(e))
 
