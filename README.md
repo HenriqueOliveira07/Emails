@@ -212,7 +212,7 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |
