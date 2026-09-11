@@ -1,4 +1,5 @@
 "use client";
+import { Fragment } from "react";
 import { EmailItem } from "@/lib/api";
 import { Paperclip, MessageCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { clsx } from "clsx";
@@ -47,9 +48,8 @@ export function EmailTable({ emails }: EmailTableProps) {
               </tr>
             )}
             {emails.map((email) => (
-              <>
+              <Fragment key={email.id}>
                 <tr
-                  key={email.id}
                   className="border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer transition-colors"
                   onClick={() => setExpanded(expanded === email.id ? null : email.id)}
                 >
@@ -107,7 +107,7 @@ export function EmailTable({ emails }: EmailTableProps) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
