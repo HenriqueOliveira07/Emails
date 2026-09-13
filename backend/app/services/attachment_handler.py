@@ -9,12 +9,15 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiofiles
 import structlog
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from app.services.ai_classifier import AIClassifier
 
 logger = structlog.get_logger(__name__)
 
@@ -105,10 +108,17 @@ class AttachmentHandler:
         return None
 
     async def save_attachments(
-        self, email_data: Dict[str, Any], attachments: List[Dict[str, Any]]
+        self,
+        email_data: Dict[str, Any],
+        attachments: List[Dict[str, Any]],
+        classifier: Optional["AIClassifier"] = None,
     ) -> List[Dict[str, Any]]:
         """
         Salva todos os anexos e retorna metadados de cada um.
+
+        Args:
+            classifier: quando informado, gera resumo inteligente e extrai
+                dados de boletos/notas fiscais de anexos PDF via IA.
 
         Returns:
             Lista de dicts com filename, file_path, file_size, file_type, ocr_text, pdf_text
@@ -148,12 +158,18 @@ class AttachmentHandler:
             ext = Path(original_name).suffix.lower()
             ocr_text = ""
             pdf_text = ""
+            ai_summary = ""
             invoice_data: Dict = {}
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
+                if classifier and pdf_text:
+                    ai_summary = classifier.summarize_pdf(pdf_text)
+                    invoice_data = classifier.extract_invoice_data(pdf_text)
             elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
                 ocr_text = self._ocr_image(file_path)
+                if classifier and ocr_text:
+                    invoice_data = classifier.extract_invoice_data(ocr_text)
 
             logger.info(
                 "attachment_saved",
@@ -170,6 +186,7 @@ class AttachmentHandler:
                 "file_type": mime_type,
                 "ocr_text": ocr_text,
                 "pdf_text": pdf_text,
+                "ai_summary": ai_summary,
                 "invoice_data": invoice_data,
                 "is_malicious": False,
             })

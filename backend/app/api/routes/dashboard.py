@@ -148,6 +148,53 @@ async def get_processing_logs(
     ]
 
 
+@router.get("/attachments")
+async def get_attachments(
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Lista os anexos salvos, com dados do e-mail de origem."""
+    result = await db.execute(
+        select(EmailAttachment, EmailRecord)
+        .join(EmailRecord, EmailAttachment.email_id == EmailRecord.id)
+        .order_by(EmailAttachment.saved_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = result.all()
+
+    total = (await db.execute(select(func.count(EmailAttachment.id)))).scalar() or 0
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {
+                "id": att.id,
+                "email_id": att.email_id,
+                "filename": att.filename,
+                "original_filename": att.original_filename,
+                "file_path": att.file_path,
+                "file_size": att.file_size,
+                "file_type": att.file_type,
+                "saved_at": att.saved_at.isoformat() if att.saved_at else None,
+                "has_ocr": bool(att.ocr_text),
+                "has_pdf_text": bool(att.pdf_text),
+                "has_ai_summary": bool(att.ai_summary),
+                "ai_summary": att.ai_summary,
+                "invoice_data": att.invoice_data,
+                "is_malicious": att.is_malicious,
+                "sender_email": email.sender_email,
+                "sender_name": email.sender_name,
+                "subject": email.subject,
+            }
+            for att, email in rows
+        ],
+    }
+
+
 @router.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Verifica saúde de todas as integrações."""

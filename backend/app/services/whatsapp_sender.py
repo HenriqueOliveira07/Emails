@@ -51,7 +51,7 @@ class WhatsAppSender:
         category = ai_result.get("category", "Geral")
 
         lines = [
-            f"[{priority_raw}]",
+            f"[{priority_label}]",
             "Novo e-mail importante recebido",
             "",
             f"Remetente: {remetente}",

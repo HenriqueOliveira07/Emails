@@ -108,7 +108,9 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                 if parsed.get("has_attachments"):
                     try:
                         raw_attachments = await reader.get_attachments(message_id)
-                        attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
+                        attachments_data = await att_handler.save_attachments(
+                            parsed, raw_attachments, classifier=classifier
+                        )
                     except Exception as e:
                         logger.warning("attachment_processing_failed", error=str(e))
 
@@ -159,6 +161,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         file_type=att["file_type"],
                         ocr_text=att.get("ocr_text", ""),
                         pdf_text=att.get("pdf_text", ""),
+                        ai_summary=att.get("ai_summary", ""),
                         invoice_data=att.get("invoice_data", {}),
                     )
                     db.add(att_record)

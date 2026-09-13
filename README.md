@@ -123,6 +123,11 @@ Acesse `http://localhost` após iniciar os serviços.
 - Indicador de status das integrações
 - Botão "Verificar Agora" para disparo manual
 
+**Páginas:** `/dashboard`, `/emails` (lista com filtros por prioridade/remetente/anexos),
+`/notifications` (histórico com reenvio manual), `/attachments` (anexos salvos com
+resumo IA e dados extraídos), `/logs` (logs de processamento) e `/settings`
+(configurações, integrações e palavras-chave de prioridade).
+
 ## API REST
 
 Documentação completa: `http://localhost:8000/api/docs`
@@ -135,9 +140,17 @@ GET  /api/dashboard/recent-emails  # E-mails recentes
 GET  /api/emails                   # Lista com filtros
 POST /api/emails/{id}/reclassify   # Re-classificar com IA
 GET  /api/dashboard/health         # Status das integrações
+GET  /api/dashboard/attachments    # Anexos salvos com dados do e-mail de origem
+GET  /api/dashboard/processing-logs # Logs de processamento
+GET  /api/notifications            # Histórico de notificações
+POST /api/notifications/{id}/retry # Reenviar notificação com falha
 POST /api/settings/trigger-check   # Disparar verificação manual
 POST /api/settings/trigger-summary # Enviar resumo diário
 ```
+
+Toda a API é protegida pelo header `X-API-Key` quando a variável `API_KEY`
+está definida no `.env` (recomendado em produção). Sem ela configurada, a API
+fica aberta — use apenas em desenvolvimento local.
 
 ## Organização de Anexos
 
@@ -186,12 +199,17 @@ open http://localhost:5555
 
 ## Segurança e LGPD
 
-- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
-- Tokens JWT com expiração configurável
-- Validação de tipos de arquivo (bloqueio de executáveis)
-- Logs de auditoria completos com retenção configurável
+- API protegida por chave de acesso (header `X-API-Key`, variável `API_KEY`)
+- Credenciais (Outlook, WhatsApp, Claude) via variáveis de ambiente — nunca hardcoded
+  ou logadas; utilitário Fernet (`app/utils/crypto.py`) disponível para criptografar
+  segredos que venham a ser persistidos no banco
+- Validação de tipos de arquivo (bloqueio de executáveis: .exe, .bat, .sh, .js, etc.)
+- Logs de auditoria completos com retenção configurável (`LOG_RETENTION_DAYS`)
 - Sem armazenamento de senhas em texto plano
 - Conexões PostgreSQL com pool e timeout
+
+> Para expor a API fora de uma rede corporativa confiável, configure `API_KEY`
+> com um valor forte e único, e mantenha o dashboard atrás do Nginx/VPN.
 
 ## Variáveis de Ambiente Obrigatórias
 
@@ -205,6 +223,20 @@ WHATSAPP_TO_NUMBER         # Seu número WhatsApp
 TWILIO_ACCOUNT_SID         # Twilio Account SID
 TWILIO_AUTH_TOKEN          # Twilio Auth Token
 WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
+API_KEY                    # Chave para o header X-API-Key (recomendado em produção)
+```
+
+## Migrações de Banco de Dados
+
+A aplicação cria as tabelas automaticamente na inicialização (`create_tables()`),
+mas o Alembic está configurado para controle de versão do schema em produção:
+
+```bash
+# Aplicar todas as migrações
+docker compose exec backend alembic upgrade head
+
+# Gerar uma nova migração após alterar um model
+docker compose exec backend alembic revision --autogenerate -m "descrição"
 ```
 
 ## Tecnologias
@@ -212,7 +244,7 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |

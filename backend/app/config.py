@@ -37,6 +37,13 @@ class Settings(BaseSettings):
         description="Chave Fernet base64 para criptografia de credenciais",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    API_KEY: str = Field(
+        default="",
+        description=(
+            "Chave exigida no header X-API-Key para acessar a API. "
+            "Se vazia, a API fica aberta (somente para desenvolvimento local)."
+        ),
+    )
 
     # -------------------------------------------------------------------------
     # Banco de Dados PostgreSQL
@@ -126,7 +133,7 @@ class Settings(BaseSettings):
         description="Chave da API da Anthropic (Claude)",
     )
     CLAUDE_MODEL: str = Field(
-        default="claude-sonnet-4-6",
+        default="claude-sonnet-5",
         description="Modelo Claude a usar para classificação",
     )
     CLAUDE_MAX_TOKENS: int = 1024

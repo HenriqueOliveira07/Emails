@@ -28,13 +28,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+next-env.d.ts
+*.tsbuildinfo
 
 # ─── Docker ──────────────────────────────────────────────────
 *.log
 
 # ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+/attachments/
+/logs/
 *.sqlite3
 *.db
 
