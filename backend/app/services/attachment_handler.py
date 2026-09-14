@@ -92,6 +92,8 @@ class AttachmentHandler:
         ext = Path(filename).suffix.lower()
         if ext in DANGEROUS_EXTENSIONS:
             return False, f"Extensão perigosa: {ext}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Extensão não permitida: {ext}"
         return True, ""
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:

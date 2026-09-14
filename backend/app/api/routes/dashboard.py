@@ -21,7 +21,10 @@ async def get_stats(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
 
     total = (await db.execute(
-        select(func.count(EmailRecord.id)).where(EmailRecord.processed_at >= today_start)
+        select(func.count(EmailRecord.id)).where(
+            EmailRecord.processed_at >= today_start,
+            EmailRecord.is_spam == False,  # noqa: E712
+        )
     )).scalar() or 0
 
     by_priority = {}
