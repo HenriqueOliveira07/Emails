@@ -28,6 +28,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+next-env.d.ts
+*.tsbuildinfo
 
 # ─── Docker ──────────────────────────────────────────────────
 *.log
@@ -45,6 +47,3 @@ logs/
 *.swo
 .DS_Store
 Thumbs.db
-
-# ─── Alembic ─────────────────────────────────────────────────
-alembic/versions/*.py
