@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.models.email import EmailAttachment, EmailRecord, PriorityLevel
+from app.models.sender_filter import PriorityCorrection
 
 router = APIRouter()
 
@@ -142,7 +143,18 @@ async def update_priority(
         raise HTTPException(status_code=400, detail=f"Prioridade inválida: {body.priority}")
 
     email = await _get_or_404(email_id, db)
-    email.priority = priority_map[body.priority.upper()]
+    new_priority = priority_map[body.priority.upper()]
+
+    if new_priority != email.priority:
+        correction = PriorityCorrection(
+            sender_email=email.sender_email,
+            subject=email.subject,
+            ai_priority=email.priority.value if email.priority else "",
+            corrected_priority=new_priority.value,
+        )
+        db.add(correction)
+
+    email.priority = new_priority
     await db.commit()
     return {"success": True, "priority": email.priority.value}
 

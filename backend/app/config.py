@@ -158,6 +158,17 @@ class Settings(BaseSettings):
         default=25,
         description="Tamanho máximo de anexo em MB",
     )
+    AUTO_REPLY_ENABLED: bool = Field(
+        default=False,
+        description="Envia resposta automática de confirmação de recebimento para e-mails de alta prioridade",
+    )
+    AUTO_REPLY_TEMPLATE: str = Field(
+        default=(
+            "Olá,\n\nRecebemos seu e-mail e ele foi classificado com prioridade {priority}. "
+            "Retornaremos em breve.\n\nEste é um recebimento automático."
+        ),
+        description="Template da resposta automática, use {priority} e {subject} como placeholders",
+    )
     ALLOWED_ATTACHMENT_TYPES: List[str] = [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -121,6 +121,21 @@ class OutlookEmailReader:
         url = f"{GRAPH_BASE}/users/{user}/messages/{message_id}"
         await self._patch(url, {"isRead": True})
 
+    async def send_reply(self, message_id: str, body: str) -> bool:
+        """Envia uma resposta automática para um e-mail. Nunca lança exceção."""
+        user = settings.OUTLOOK_EMAIL_ADDRESS
+        url = f"{GRAPH_BASE}/users/{user}/messages/{message_id}/reply"
+        try:
+            resp = await self._client.post(
+                url, headers=self._headers(), json={"comment": body}
+            )
+            resp.raise_for_status()
+            logger.info("auto_reply_sent", message_id=message_id)
+            return True
+        except Exception as e:
+            logger.warning("auto_reply_failed", message_id=message_id, error=str(e))
+            return False
+
     def parse_email(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         """Extrai campos estruturados de uma mensagem bruta da Graph API."""
         sender = raw.get("from", {}).get("emailAddress", {})

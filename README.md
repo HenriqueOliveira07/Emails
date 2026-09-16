@@ -193,6 +193,13 @@ open http://localhost:5555
 - Sem armazenamento de senhas em texto plano
 - Conexões PostgreSQL com pool e timeout
 
+## Funcionalidades Avançadas
+
+- **Filtros por remetente**: bloqueie, promova a VIP ou force a prioridade de e-mails de remetentes/domínios específicos (`/api/settings/sender-filters`)
+- **Agrupamento por assunto**: e-mails da mesma thread são agrupados automaticamente (`/api/dashboard/grouped-by-subject`)
+- **Aprendizado contínuo**: correções manuais de prioridade (`PATCH /api/emails/{id}/priority`) alimentam o histórico usado pela IA nas próximas classificações do mesmo remetente
+- **Resposta automática** (opcional, `AUTO_REPLY_ENABLED=true`): confirma o recebimento de e-mails de alta prioridade que exigem ação, usando o template `AUTO_REPLY_TEMPLATE`
+
 ## Variáveis de Ambiente Obrigatórias
 
 ```

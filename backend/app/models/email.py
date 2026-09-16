@@ -39,6 +39,7 @@ class EmailRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     message_id = Column(String(512), unique=True, nullable=False, index=True)
     subject = Column(String(1000), nullable=True, default="(Sem assunto)")
+    thread_key = Column(String(1000), nullable=True, index=True)  # Assunto normalizado (agrupamento)
     sender_email = Column(String(320), nullable=False, index=True)
     sender_name = Column(String(500), nullable=True, default="")
     recipients = Column(JSON, nullable=True, default=list)  # Lista de destinatários

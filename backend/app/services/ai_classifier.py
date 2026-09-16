@@ -76,9 +76,18 @@ class AIClassifier:
     def __init__(self) -> None:
         self._client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    def classify_email(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
+    def classify_email(
+        self,
+        email_data: Dict[str, Any],
+        correction_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """
         Classifica um e-mail e retorna prioridade, categoria e resumo.
+
+        Args:
+            email_data: Dados do e-mail (assunto, remetente, corpo, etc).
+            correction_history: Últimas correções manuais de prioridade feitas
+                para este remetente, usadas como reforço de aprendizado contínuo.
 
         Returns:
             Dict com priority, category, summary, keywords_found, is_spam, action_required
@@ -102,6 +111,21 @@ Corpo:
 {body_trimmed}
 
 Classifique este e-mail."""
+
+        if correction_history:
+            recent = correction_history[:5]
+            counts: Dict[str, int] = {}
+            for c in recent:
+                p = c.get("corrected_priority", "")
+                if p:
+                    counts[p] = counts.get(p, 0) + 1
+            if counts:
+                most_common = max(counts, key=counts.get)
+                user_message += (
+                    f"\n\nHistórico: e-mails deste remetente foram corrigidos manualmente "
+                    f"para prioridade {most_common} em {counts[most_common]} das últimas "
+                    f"{len(recent)} ocasiões anteriores — leve isso em conta."
+                )
 
         try:
             response = self._client.messages.create(

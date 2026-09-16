@@ -52,6 +52,7 @@ async def create_tables() -> None:
     # Importa os modelos para garantir que estão registrados
     from app.models.email import EmailRecord, EmailAttachment  # noqa: F401
     from app.models.notification import NotificationLog, ProcessingLog  # noqa: F401
+    from app.models.sender_filter import SenderFilter, PriorityCorrection  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

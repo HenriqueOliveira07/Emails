@@ -1,18 +1,28 @@
 """
 Endpoints de configuração do sistema.
 """
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db.database import get_db
+from app.models.sender_filter import SenderFilter, SenderFilterAction
 
 router = APIRouter()
 
 
 class CheckIntervalUpdate(BaseModel):
     seconds: int
+
+
+class SenderFilterCreate(BaseModel):
+    pattern: str
+    action: str
+    reason: Optional[str] = ""
 
 
 @router.get("")
@@ -68,3 +78,54 @@ async def trigger_daily_summary() -> Dict[str, Any]:
     from app.workers.tasks import send_daily_summary
     task = send_daily_summary.delay()
     return {"task_id": task.id, "status": "queued", "message": "Resumo diário iniciado"}
+
+
+@router.get("/sender-filters")
+async def list_sender_filters(db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Lista todos os filtros personalizados por remetente."""
+    result = await db.execute(select(SenderFilter).order_by(SenderFilter.created_at.desc()))
+    filters = result.scalars().all()
+    return [_serialize_filter(f) for f in filters]
+
+
+@router.post("/sender-filters")
+async def create_sender_filter(
+    body: SenderFilterCreate, db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Cria um novo filtro personalizado por remetente/domínio."""
+    action = body.action.upper()
+    if action not in SenderFilterAction.__members__:
+        raise HTTPException(status_code=400, detail=f"Ação inválida: {body.action}")
+
+    sender_filter = SenderFilter(
+        pattern=body.pattern.strip(),
+        action=SenderFilterAction[action],
+        reason=body.reason or "",
+    )
+    db.add(sender_filter)
+    await db.commit()
+    await db.refresh(sender_filter)
+    return _serialize_filter(sender_filter)
+
+
+@router.delete("/sender-filters/{filter_id}")
+async def delete_sender_filter(filter_id: int, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Remove um filtro personalizado por remetente."""
+    result = await db.execute(select(SenderFilter).where(SenderFilter.id == filter_id))
+    sender_filter = result.scalar_one_or_none()
+    if not sender_filter:
+        raise HTTPException(status_code=404, detail="Filtro não encontrado")
+
+    await db.delete(sender_filter)
+    await db.commit()
+    return {"success": True}
+
+
+def _serialize_filter(f: SenderFilter) -> Dict[str, Any]:
+    return {
+        "id": f.id,
+        "pattern": f.pattern,
+        "action": f.action.value if f.action else "",
+        "reason": f.reason,
+        "created_at": f.created_at.isoformat() if f.created_at else None,
+    }

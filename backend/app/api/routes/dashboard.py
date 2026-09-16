@@ -4,7 +4,7 @@ Endpoints do painel de controle principal.
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,14 @@ from app.models.email import EmailAttachment, EmailRecord, PriorityLevel
 from app.models.notification import NotificationLog, NotificationStatus, ProcessingLog
 
 router = APIRouter()
+
+# Ordem de severidade das prioridades, da mais alta para a mais baixa
+_PRIORITY_SEVERITY = {
+    PriorityLevel.CRITICAL: 4,
+    PriorityLevel.HIGH: 3,
+    PriorityLevel.MEDIUM: 2,
+    PriorityLevel.LOW: 1,
+}
 
 
 @router.get("/stats")
@@ -146,6 +154,70 @@ async def get_processing_logs(
         }
         for log in logs
     ]
+
+
+@router.get("/grouped-by-subject")
+async def get_grouped_by_subject(
+    limit: int = Query(default=50, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Agrupa e-mails não-spam por assunto normalizado (thread_key)."""
+    result = await db.execute(
+        select(EmailRecord)
+        .where(EmailRecord.is_spam == False)  # noqa: E712
+        .order_by(EmailRecord.received_at.desc())
+    )
+    emails = result.scalars().all()
+
+    groups: Dict[str, Dict[str, Any]] = {}
+    for e in emails:
+        key = e.thread_key or "(sem assunto)"
+        group = groups.get(key)
+        if group is None:
+            group = {
+                "thread_key": key,
+                "email_count": 0,
+                "latest_subject": e.subject,
+                "latest_received_at": e.received_at,
+                "highest_priority": e.priority,
+                "senders": set(),
+            }
+            groups[key] = group
+
+        group["email_count"] += 1
+        group["senders"].add(e.sender_email)
+
+        if e.received_at and (
+            group["latest_received_at"] is None or e.received_at > group["latest_received_at"]
+        ):
+            group["latest_received_at"] = e.received_at
+            group["latest_subject"] = e.subject
+
+        if _PRIORITY_SEVERITY.get(e.priority, 0) > _PRIORITY_SEVERITY.get(group["highest_priority"], 0):
+            group["highest_priority"] = e.priority
+
+    ordered = sorted(
+        groups.values(),
+        key=lambda g: g["latest_received_at"] or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )[:limit]
+
+    return {
+        "items": [
+            {
+                "thread_key": g["thread_key"],
+                "email_count": g["email_count"],
+                "latest_subject": g["latest_subject"],
+                "latest_received_at": (
+                    g["latest_received_at"].isoformat() if g["latest_received_at"] else None
+                ),
+                "highest_priority": g["highest_priority"].value if g["highest_priority"] else "BAIXO",
+                "senders": sorted(g["senders"]),
+            }
+            for g in ordered
+        ],
+        "limit": limit,
+    }
 
 
 @router.get("/health")

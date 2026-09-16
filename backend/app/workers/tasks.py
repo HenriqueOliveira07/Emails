@@ -23,6 +23,26 @@ def run_async(coro):
         loop.close()
 
 
+def _match_sender_filter(sender_email: str, filters) -> Any:
+    """
+    Retorna o SenderFilter que casa com o remetente, dando prioridade a um
+    match exato de e-mail sobre um match por sufixo de domínio (ex: @dominio.com).
+    """
+    sender_lower = (sender_email or "").lower()
+    exact_match = None
+    domain_match = None
+    for f in filters:
+        pattern = (f.pattern or "").strip().lower()
+        if not pattern:
+            continue
+        if pattern.startswith("@"):
+            if domain_match is None and sender_lower.endswith(pattern):
+                domain_match = f
+        elif exact_match is None and pattern == sender_lower:
+            exact_match = f
+    return exact_match or domain_match
+
+
 @celery_app.task(
     bind=True,
     name="app.workers.tasks.check_new_emails",
@@ -44,11 +64,13 @@ async def _check_new_emails_async() -> Dict[str, Any]:
     from app.db.database import AsyncSessionLocal
     from app.models.email import EmailRecord, EmailAttachment, PriorityLevel
     from app.models.notification import NotificationLog, NotificationChannel, NotificationStatus
+    from app.models.sender_filter import SenderFilter, SenderFilterAction, PriorityCorrection
     from app.services.email_reader import OutlookEmailReader
     from app.services.ai_classifier import AIClassifier
     from app.services.whatsapp_sender import WhatsAppSender
     from app.services.attachment_handler import AttachmentHandler
     from app.services.log_service import LogService
+    from app.utils.text_utils import normalize_subject
     from sqlalchemy import select
 
     cycle_start = time.monotonic()
@@ -76,6 +98,16 @@ async def _check_new_emails_async() -> Dict[str, Any]:
     async with AsyncSessionLocal() as db:
         log_svc = LogService(db)
 
+        # Carrega os filtros personalizados por remetente uma única vez por ciclo
+        sender_filters = (await db.execute(select(SenderFilter))).scalars().all()
+
+        force_priority_map = {
+            SenderFilterAction.FORCE_CRITICAL: "CRITICO",
+            SenderFilterAction.FORCE_HIGH: "ALTO",
+            SenderFilterAction.FORCE_MEDIUM: "MEDIO",
+            SenderFilterAction.FORCE_LOW: "BAIXO",
+        }
+
         for raw in raw_emails:
             email_start = time.monotonic()
             try:
@@ -89,8 +121,38 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                 if existing.scalar_one_or_none():
                     continue
 
+                # Filtros personalizados por remetente (bloqueio tem precedência total)
+                matched_filter = _match_sender_filter(parsed["sender_email"], sender_filters)
+                if matched_filter and matched_filter.action == SenderFilterAction.BLOCK:
+                    try:
+                        await reader.mark_as_read(message_id)
+                    except Exception:
+                        pass
+                    await log_svc.log_email_ignored(message_id, parsed["sender_email"], "sender_blocked")
+                    stats["emails_ignored"] += 1
+                    continue
+
+                # Histórico de correções manuais do remetente (aprendizado contínuo)
+                corrections = (await db.execute(
+                    select(PriorityCorrection)
+                    .where(PriorityCorrection.sender_email == parsed["sender_email"])
+                    .order_by(PriorityCorrection.created_at.desc())
+                    .limit(5)
+                )).scalars().all()
+                correction_history = [
+                    {"corrected_priority": c.corrected_priority, "ai_priority": c.ai_priority}
+                    for c in corrections
+                ]
+
                 # Classificar com IA
-                ai_result = classifier.classify_email(parsed)
+                ai_result = classifier.classify_email(parsed, correction_history=correction_history)
+
+                # Aplica ações de filtro por remetente (força prioridade ou promove a VIP)
+                if matched_filter and matched_filter.action in force_priority_map:
+                    ai_result["priority"] = force_priority_map[matched_filter.action]
+                elif matched_filter and matched_filter.action == SenderFilterAction.VIP:
+                    if ai_result.get("priority") != "CRITICO":
+                        ai_result["priority"] = "ALTO"
 
                 # Marcar como lido no Outlook
                 try:
@@ -127,6 +189,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                 email_record = EmailRecord(
                     message_id=message_id,
                     subject=parsed["subject"],
+                    thread_key=normalize_subject(parsed["subject"]),
                     sender_email=parsed["sender_email"],
                     sender_name=parsed["sender_name"],
                     recipients=parsed["recipients"],
@@ -190,6 +253,21 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         email_record.whatsapp_sent = True
                         email_record.whatsapp_sent_at = datetime.now(timezone.utc)
                         stats["notifications_sent"] += 1
+
+                        # Resposta automática opcional para e-mails de alta prioridade
+                        if settings.AUTO_REPLY_ENABLED and ai_result.get("action_required"):
+                            try:
+                                await reader.send_reply(
+                                    message_id,
+                                    settings.AUTO_REPLY_TEMPLATE.format(
+                                        priority=ai_result.get("priority", ""),
+                                        subject=parsed["subject"],
+                                    ),
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "auto_reply_error", message_id=message_id, error=str(e)
+                                )
 
                     await log_svc.log_whatsapp_sent(
                         email_record.id,
