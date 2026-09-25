@@ -177,6 +177,11 @@ check_new_emails.delay()
 # Acessar banco de dados
 docker compose exec postgres psql -U emails_user -d emails_db
 
+# Rodar/gerar migrações Alembic (as tabelas também são criadas
+# automaticamente no start do backend via create_tables())
+docker compose exec backend alembic upgrade head
+docker compose exec backend alembic revision --autogenerate -m "descricao"
+
 # Escalar workers
 docker compose up -d --scale celery-worker=3
 
