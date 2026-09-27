@@ -1,6 +1,7 @@
 """
 Endpoints do painel de controle principal.
 """
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
@@ -145,6 +146,72 @@ async def get_processing_logs(
             "details": log.details,
         }
         for log in logs
+    ]
+
+
+_SUBJECT_PREFIX_RE = re.compile(r"^\s*(re|fwd|fw|enc)\s*:\s*", re.IGNORECASE)
+
+
+def _normalize_subject(subject: str) -> str:
+    """Remove prefixos de resposta/encaminhamento para agrupar a mesma conversa."""
+    normalized = subject or "(Sem assunto)"
+    while True:
+        stripped = _SUBJECT_PREFIX_RE.sub("", normalized)
+        if stripped == normalized:
+            break
+        normalized = stripped
+    return normalized.strip() or "(Sem assunto)"
+
+
+@router.get("/grouped-by-subject")
+async def get_emails_grouped_by_subject(
+    limit: int = 20, db: AsyncSession = Depends(get_db)
+) -> List[Dict[str, Any]]:
+    """Agrupa e-mails recentes por assunto normalizado (ignorando Re:/Fwd:/Enc:)."""
+    result = await db.execute(
+        select(EmailRecord)
+        .where(EmailRecord.is_spam == False)  # noqa: E712
+        .order_by(EmailRecord.received_at.desc())
+        .limit(500)
+    )
+    emails = result.scalars().all()
+
+    groups: Dict[str, Dict[str, Any]] = {}
+    for e in emails:
+        key = _normalize_subject(e.subject)
+        group = groups.setdefault(key, {
+            "subject": key,
+            "count": 0,
+            "senders": set(),
+            "highest_priority": e.priority.value if e.priority else "BAIXO",
+            "last_received_at": e.received_at,
+            "emails": [],
+        })
+        group["count"] += 1
+        group["senders"].add(e.sender_email)
+        group["emails"].append(_serialize_email(e))
+        if e.received_at and (not group["last_received_at"] or e.received_at > group["last_received_at"]):
+            group["last_received_at"] = e.received_at
+
+    priority_rank = {"CRITICO": 3, "ALTO": 2, "MEDIO": 1, "BAIXO": 0}
+    ordered = sorted(
+        groups.values(),
+        key=lambda g: (
+            max((priority_rank.get(item["priority"], 0) for item in g["emails"]), default=0),
+            g["last_received_at"] or datetime.min.replace(tzinfo=timezone.utc),
+        ),
+        reverse=True,
+    )[:limit]
+
+    return [
+        {
+            "subject": g["subject"],
+            "count": g["count"],
+            "senders": sorted(g["senders"]),
+            "last_received_at": g["last_received_at"].isoformat() if g["last_received_at"] else None,
+            "emails": g["emails"],
+        }
+        for g in ordered
     ]
 
 

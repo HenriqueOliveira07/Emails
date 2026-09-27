@@ -130,13 +130,14 @@ Documentação completa: `http://localhost:8000/api/docs`
 Principais endpoints:
 
 ```
-GET  /api/dashboard/stats          # Estatísticas do dia
-GET  /api/dashboard/recent-emails  # E-mails recentes
-GET  /api/emails                   # Lista com filtros
-POST /api/emails/{id}/reclassify   # Re-classificar com IA
-GET  /api/dashboard/health         # Status das integrações
-POST /api/settings/trigger-check   # Disparar verificação manual
-POST /api/settings/trigger-summary # Enviar resumo diário
+GET  /api/dashboard/stats               # Estatísticas do dia
+GET  /api/dashboard/recent-emails       # E-mails recentes
+GET  /api/dashboard/grouped-by-subject  # Agrupamento de e-mails pela mesma conversa
+GET  /api/emails                        # Lista com filtros
+POST /api/emails/{id}/reclassify        # Re-classificar com IA
+GET  /api/dashboard/health              # Status das integrações
+POST /api/settings/trigger-check        # Disparar verificação manual
+POST /api/settings/trigger-summary      # Enviar resumo diário
 ```
 
 ## Organização de Anexos
@@ -207,12 +208,21 @@ TWILIO_AUTH_TOKEN          # Twilio Auth Token
 WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 ```
 
+## Filtros Personalizados por Remetente
+
+Opcional, via variáveis de ambiente (aceitam e-mail exato ou domínio no formato `@dominio.com`):
+
+```
+SENDER_BLOCKLIST=["newsletter@fornecedor.com", "@spam-conhecido.com"]
+SENDER_PRIORITY_OVERRIDES={"diretoria@empresa.com": "CRITICO", "@juridico-externo.com": "ALTO"}
+```
+
 ## Tecnologias
 
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |

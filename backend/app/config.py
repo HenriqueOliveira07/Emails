@@ -2,7 +2,7 @@
 Configuração central da aplicação usando Pydantic Settings.
 Todas as variáveis de ambiente são carregadas e validadas aqui.
 """
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, validator
 import os
@@ -126,7 +126,7 @@ class Settings(BaseSettings):
         description="Chave da API da Anthropic (Claude)",
     )
     CLAUDE_MODEL: str = Field(
-        default="claude-sonnet-4-6",
+        default="claude-sonnet-5",
         description="Modelo Claude a usar para classificação",
     )
     CLAUDE_MAX_TOKENS: int = 1024
@@ -266,6 +266,18 @@ class Settings(BaseSettings):
         "out of office",
         "ausente",
     ]
+
+    # -------------------------------------------------------------------------
+    # Filtros personalizados por remetente
+    # -------------------------------------------------------------------------
+    SENDER_BLOCKLIST: List[str] = Field(
+        default=[],
+        description="E-mails ou domínios (ex: @spam.com) sempre ignorados, sem custo de classificação por IA",
+    )
+    SENDER_PRIORITY_OVERRIDES: Dict[str, str] = Field(
+        default={},
+        description="Mapa de e-mail/domínio para prioridade forçada (CRITICO|ALTO|MEDIO|BAIXO)",
+    )
 
     # -------------------------------------------------------------------------
     # CORS

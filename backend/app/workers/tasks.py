@@ -4,7 +4,7 @@ Tarefas Celery para processamento automático de e-mails.
 import asyncio
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import structlog
 
@@ -21,6 +21,28 @@ def run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+def _sender_matches(sender_email: str, pattern: str) -> bool:
+    """Compara um e-mail contra um padrão de e-mail exato ou domínio (@dominio.com)."""
+    sender_email = (sender_email or "").lower()
+    pattern = pattern.lower()
+    if pattern.startswith("@"):
+        return sender_email.endswith(pattern)
+    return sender_email == pattern
+
+
+def is_sender_blocked(sender_email: str, blocklist: list) -> bool:
+    """Filtro personalizado: remetentes sempre ignorados (ex: fornecedores de spam conhecidos)."""
+    return any(_sender_matches(sender_email, p) for p in blocklist)
+
+
+def get_sender_priority_override(sender_email: str, overrides: dict) -> Optional[str]:
+    """Filtro personalizado: força a prioridade para remetentes específicos (ex: diretoria)."""
+    for pattern, priority in overrides.items():
+        if _sender_matches(sender_email, pattern):
+            return priority
+    return None
 
 
 @celery_app.task(
@@ -89,6 +111,16 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                 if existing.scalar_one_or_none():
                     continue
 
+                # Filtro personalizado: remetente sempre ignorado
+                if is_sender_blocked(parsed["sender_email"], settings.SENDER_BLOCKLIST):
+                    try:
+                        await reader.mark_as_read(message_id)
+                    except Exception:
+                        pass
+                    await log_svc.log_email_ignored(message_id, parsed["sender_email"], "sender_blocklist")
+                    stats["emails_ignored"] += 1
+                    continue
+
                 # Classificar com IA
                 ai_result = classifier.classify_email(parsed)
 
@@ -103,12 +135,23 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     stats["emails_ignored"] += 1
                     continue
 
+                # Filtro personalizado: prioridade forçada por remetente (ex: diretoria)
+                priority_override = get_sender_priority_override(
+                    parsed["sender_email"], settings.SENDER_PRIORITY_OVERRIDES
+                )
+                if priority_override:
+                    ai_result["priority"] = priority_override
+
                 # Processar anexos
                 attachments_data = []
                 if parsed.get("has_attachments"):
                     try:
                         raw_attachments = await reader.get_attachments(message_id)
                         attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
+                        for att in attachments_data:
+                            doc_text = att.get("pdf_text") or att.get("ocr_text")
+                            if doc_text:
+                                att["invoice_data"] = classifier.extract_invoice_data(doc_text)
                     except Exception as e:
                         logger.warning("attachment_processing_failed", error=str(e))
 
