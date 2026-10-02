@@ -153,6 +153,11 @@ POST /api/settings/trigger-summary # Enviar resumo diário
                     └── nf_12345.xml
 ```
 
+## Documentação
+
+- [Arquitetura corporativa](docs/ARQUITETURA.md)
+- [Fluxograma operacional](docs/FLUXOGRAMA.md)
+
 ## Prioridades
 
 | Nível | Cor | Exemplos | WhatsApp |
