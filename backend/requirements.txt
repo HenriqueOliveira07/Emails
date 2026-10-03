@@ -23,3 +23,4 @@ celery[redis]==5.4.0
 flower==2.0.1
 structlog==24.1.0
 sentry-sdk[fastapi]==2.3.1
+pytest==8.2.0

@@ -45,7 +45,7 @@ def cleanup_empty_dirs(base_path: str | Path) -> int:
     for dirpath, dirnames, filenames in os.walk(str(base_path), topdown=False):
         if dirpath == str(base_path):
             continue
-        if not filenames and not dirnames:
+        if not os.listdir(dirpath):
             try:
                 os.rmdir(dirpath)
                 removed += 1

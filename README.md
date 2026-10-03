@@ -224,3 +224,9 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 ---
 
 Desenvolvido para ambiente corporativo — escalável, seguro e pronto para produção.
+
+## Documentação adicional
+
+- [Arquitetura e fluxograma operacional](docs/ARQUITETURA.md)
+- Testes: `cd backend && pytest`
+- Migrações: `cd backend && alembic upgrade head`
