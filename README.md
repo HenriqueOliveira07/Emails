@@ -4,6 +4,8 @@ Sistema corporativo automatizado para monitoramento inteligente de e-mails com c
 
 ## Arquitetura
 
+> Diagramas detalhados e fluxograma operacional: [docs/ARQUITETURA.md](docs/ARQUITETURA.md). Testes: `cd backend && pytest`.
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         NGINX (porta 80)                        │
