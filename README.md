@@ -4,6 +4,9 @@ Sistema corporativo automatizado para monitoramento inteligente de e-mails com c
 
 ## Arquitetura
 
+Veja também [docs/ARQUITETURA.md](docs/ARQUITETURA.md) (diagramas e fluxograma operacional).
+
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         NGINX (porta 80)                        │
