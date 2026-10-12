@@ -49,7 +49,7 @@ def is_spam_sender(sender_email: str, spam_patterns: list[str]) -> bool:
     """Verifica se o remetente corresponde a padrões de spam."""
     sender_lower = sender_email.lower()
     spam_domains = ["noreply", "no-reply", "donotreply", "newsletter", "marketing", "bulk"]
-    for pattern in spam_domains:
+    for pattern in spam_domains + [p.lower() for p in spam_patterns if p]:
         if pattern in sender_lower:
             return True
     return False

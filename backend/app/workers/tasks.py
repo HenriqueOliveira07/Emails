@@ -49,6 +49,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
     from app.services.whatsapp_sender import WhatsAppSender
     from app.services.attachment_handler import AttachmentHandler
     from app.services.log_service import LogService
+    from app.utils.sanitizer import is_spam_sender
     from sqlalchemy import select
 
     cycle_start = time.monotonic()
@@ -87,6 +88,14 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     select(EmailRecord).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    continue
+
+                # Filtro personalizado por remetente
+                if settings.BLOCKED_SENDER_PATTERNS and is_spam_sender(
+                    parsed["sender_email"], settings.BLOCKED_SENDER_PATTERNS
+                ):
+                    await log_svc.log_email_ignored(message_id, parsed["sender_email"], "sender_filter")
+                    stats["emails_ignored"] += 1
                     continue
 
                 # Classificar com IA
