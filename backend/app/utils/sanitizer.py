@@ -48,8 +48,8 @@ def sanitize_email_address(email: str) -> Optional[str]:
 def is_spam_sender(sender_email: str, spam_patterns: list[str]) -> bool:
     """Verifica se o remetente corresponde a padrões de spam."""
     sender_lower = sender_email.lower()
-    spam_domains = ["noreply", "no-reply", "donotreply", "newsletter", "marketing", "bulk"]
-    for pattern in spam_domains:
+    default_patterns = ["noreply", "no-reply", "donotreply", "newsletter", "marketing", "bulk"]
+    for pattern in default_patterns + [p.lower() for p in (spam_patterns or [])]:
         if pattern in sender_lower:
             return True
     return False
