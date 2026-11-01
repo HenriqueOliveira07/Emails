@@ -28,6 +28,8 @@ Sistema corporativo automatizado para monitoramento inteligente de e-mails com c
                               └───────────────────────┘
 ```
 
+> Arquitetura corporativa e fluxograma completo: [docs/ARQUITETURA.md](docs/ARQUITETURA.md)
+
 ## Fluxo de Processamento
 
 ```
