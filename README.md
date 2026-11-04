@@ -4,6 +4,8 @@ Sistema corporativo automatizado para monitoramento inteligente de e-mails com c
 
 ## Arquitetura
 
+> Arquitetura corporativa e fluxograma operacional (Mermaid): [docs/ARQUITETURA.md](docs/ARQUITETURA.md)
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         NGINX (porta 80)                        │
