@@ -2,6 +2,8 @@
 
 Sistema corporativo automatizado para monitoramento inteligente de e-mails com classificação por IA (Claude) e notificações via WhatsApp.
 
+> Documentação detalhada e fluxograma operacional: [docs/ARQUITETURA.md](docs/ARQUITETURA.md)
+
 ## Arquitetura
 
 ```
