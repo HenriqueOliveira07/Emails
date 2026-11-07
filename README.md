@@ -102,6 +102,8 @@ docker compose logs -f celery-worker
 3. Configure `META_WHATSAPP_PHONE_NUMBER_ID`, `META_WHATSAPP_ACCESS_TOKEN`
 4. `WHATSAPP_PROVIDER=meta`
 
+> Arquitetura e fluxograma: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Defina `API_ACCESS_KEY` (e `NEXT_PUBLIC_API_KEY` no frontend) para proteger a API.
+
 ## Serviços e Portas
 
 | Serviço | Porta | Descrição |

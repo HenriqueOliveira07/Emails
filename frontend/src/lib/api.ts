@@ -2,7 +2,9 @@ import axios from "axios";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
-export const api = axios.create({ baseURL: BASE + "/api" });
+export const api = axios.create({ baseURL: BASE + "/api",
+  headers: process.env.NEXT_PUBLIC_API_KEY ? { "X-API-Key": process.env.NEXT_PUBLIC_API_KEY } : {},
+});
 
 export interface EmailItem {
   id: number;

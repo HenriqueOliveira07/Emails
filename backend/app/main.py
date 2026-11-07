@@ -64,12 +64,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Erro interno do servidor"})
 
 
+from fastapi import Depends  # noqa: E402
+from app.api.security import require_api_key  # noqa: E402
 from app.api.routes import dashboard, emails, notifications, settings as settings_router  # noqa: E402
 
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-app.include_router(emails.router, prefix="/api/emails", tags=["E-mails"])
-app.include_router(notifications.router, prefix="/api/notifications", tags=["Notificações"])
-app.include_router(settings_router.router, prefix="/api/settings", tags=["Configurações"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"], dependencies=[Depends(require_api_key)])
+app.include_router(emails.router, prefix="/api/emails", tags=["E-mails"], dependencies=[Depends(require_api_key)])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["Notificações"], dependencies=[Depends(require_api_key)])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["Configurações"], dependencies=[Depends(require_api_key)])
 
 
 @app.get("/api/health", tags=["Sistema"])
