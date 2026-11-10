@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # Segurança
     # -------------------------------------------------------------------------
+    API_ACCESS_TOKEN: str = Field(
+        default="",
+        description="Token de acesso à API (header X-API-Key). Vazio = sem autenticação (apenas dev)",
+    )
     SECRET_KEY: str = Field(
         default="troque-esta-chave-secreta-em-producao-32chars",
         description="Chave secreta JWT - mude em produção",

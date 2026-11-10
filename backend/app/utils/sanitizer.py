@@ -11,9 +11,19 @@ class HTMLStripper(HTMLParser):
         super().__init__()
         self.reset()
         self._parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs) -> None:
+        if tag in ("script", "style"):
+            self._skip += 1
+
+    def handle_endtag(self, tag) -> None:
+        if tag in ("script", "style") and self._skip:
+            self._skip -= 1
 
     def handle_data(self, d: str) -> None:
-        self._parts.append(d)
+        if not self._skip:
+            self._parts.append(d)
 
     def get_text(self) -> str:
         return " ".join(self._parts)
