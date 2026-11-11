@@ -162,6 +162,18 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 | MÉDIO | 🟡 | Fornecedores, clientes, pendências | ❌ |
 | BAIXO | 🟢 | Informativos, atualizações rotineiras | ❌ |
 
+## Testes
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest -q tests
+```
+
+Cobrem classificação por palavras-chave (fallback sem IA), formato da mensagem WhatsApp,
+organização de anexos por data local/remetente, deduplicação e bloqueio de extensões
+perigosas, e a renovação do token MSAL.
+
 ## Comandos Úteis
 
 ```bash

@@ -135,9 +135,20 @@ Classifique este e-mail."""
         text = (
             (email_data.get("subject", "") + " " + email_data.get("body_preview", "")).lower()
         )
+        sender = email_data.get("sender_email", "").lower()
 
-        spam_kws = [kw.lower() for kw in settings.SPAM_KEYWORDS]
-        if any(kw in text for kw in spam_kws):
+        def _matches(keywords: List[str], haystack: str) -> List[str]:
+            # dict.fromkeys preserva a ordem e remove duplicatas
+            return list(dict.fromkeys(kw.lower() for kw in keywords if kw.lower() in haystack))
+
+        critical_kws = _matches(settings.PRIORITY_CRITICAL_KEYWORDS, text)
+        high_kws = _matches(settings.PRIORITY_HIGH_KEYWORDS, text)
+        medium_kws = _matches(settings.PRIORITY_MEDIUM_KEYWORDS, text)
+
+        # Termos de marketing ("desconto", "oferta") aparecem em boletos e propostas
+        # legítimas; só descartamos como spam se não houver sinal crítico/alto.
+        spam_hit = _matches(settings.SPAM_KEYWORDS, text + " " + sender)
+        if spam_hit and not (critical_kws or high_kws):
             return {
                 "priority": "BAIXO",
                 "category": "Spam/Newsletter",
@@ -148,26 +159,15 @@ Classifique este e-mail."""
                 "action_description": "",
             }
 
-        critical_kws = [kw.lower() for kw in settings.PRIORITY_CRITICAL_KEYWORDS]
-        high_kws = [kw.lower() for kw in settings.PRIORITY_HIGH_KEYWORDS]
-        medium_kws = [kw.lower() for kw in settings.PRIORITY_MEDIUM_KEYWORDS]
-
-        found_critical = [kw for kw in critical_kws if kw in text]
-        found_high = [kw for kw in high_kws if kw in text]
-        found_medium = [kw for kw in medium_kws if kw in text]
-
-        if found_critical:
+        if critical_kws:
             priority = "CRITICO"
-            keywords = found_critical
-        elif found_high:
+        elif high_kws:
             priority = "ALTO"
-            keywords = found_high
-        elif found_medium:
+        elif medium_kws:
             priority = "MEDIO"
-            keywords = found_medium
         else:
             priority = "BAIXO"
-            keywords = []
+        keywords = list(dict.fromkeys(critical_kws + high_kws + medium_kws))
 
         return {
             "priority": priority,

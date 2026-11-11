@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import aiofiles
 import structlog
 
-from app.config import settings
+from app.config import local_time, settings
 
 logger = structlog.get_logger(__name__)
 
@@ -40,7 +40,8 @@ class AttachmentHandler:
 
     def _build_path(self, email_data: Dict[str, Any]) -> Path:
         """Constrói o caminho de destino: /base/YYYY/MM/DD/Remetente/"""
-        received_at: datetime = email_data.get("received_at") or datetime.now(timezone.utc)
+        # Pastas por data LOCAL: um e-mail recebido às 22h (BRT) não pode cair no dia seguinte.
+        received_at: datetime = local_time(email_data.get("received_at") or datetime.now(timezone.utc))
         sender_email: str = email_data.get("sender_email", "desconhecido")
         sender_name: str = email_data.get("sender_name", "")
 

@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # Configurações de Processamento
     # -------------------------------------------------------------------------
+    TIMEZONE: str = Field(
+        default="America/Sao_Paulo",
+        description="Fuso horário local usado nas notificações e nas pastas de anexos",
+    )
     CHECK_INTERVAL_SECONDS: int = Field(
         default=60,
         description="Intervalo de verificação de novos e-mails em segundos",
@@ -300,3 +304,13 @@ class Settings(BaseSettings):
 
 # Instância singleton das configurações
 settings = Settings()
+
+
+def local_time(dt):
+    """Converte um datetime (aware ou UTC naive) para o fuso horário local configurado."""
+    from datetime import timezone as _tz
+    from zoneinfo import ZoneInfo
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_tz.utc)
+    return dt.astimezone(ZoneInfo(settings.TIMEZONE))

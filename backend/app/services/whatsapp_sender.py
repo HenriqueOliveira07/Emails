@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 import httpx
 import structlog
 
-from app.config import settings
+from app.config import local_time, settings
 
 logger = structlog.get_logger(__name__)
 
@@ -38,9 +38,9 @@ class WhatsAppSender:
 
         received_at: Optional[datetime] = email_data.get("received_at")
         if isinstance(received_at, datetime):
-            horario = received_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+            horario = local_time(received_at).strftime("%d/%m/%Y %H:%M")
         else:
-            horario = datetime.now().strftime("%d/%m/%Y %H:%M")
+            horario = local_time(datetime.now(timezone.utc)).strftime("%d/%m/%Y %H:%M")
 
         subject = email_data.get("subject", "(Sem assunto)")
         summary = ai_result.get("summary", email_data.get("body_preview", ""))[:400]
@@ -81,7 +81,7 @@ class WhatsAppSender:
 
     async def send_daily_summary(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """Envia resumo diário via WhatsApp."""
-        today = datetime.now().strftime("%d/%m/%Y")
+        today = local_time(datetime.now(timezone.utc)).strftime("%d/%m/%Y")
         message = (
             f"RESUMO DIÁRIO — {today}\n\n"
             f"E-mails processados: {stats.get('total', 0)}\n"

@@ -20,7 +20,21 @@ def run_async(coro):
     try:
         return loop.run_until_complete(coro)
     finally:
+        # O pool do asyncpg fica preso ao event loop que criou as conexões.
+        # Como cada tarefa usa um loop novo, descartamos o pool ao final para
+        # evitar "attached to a different loop" na execução seguinte.
+        from app.db.database import engine
+
+        loop.run_until_complete(engine.dispose())
         loop.close()
+
+
+async def _mark_read_safely(reader, message_id: str) -> None:
+    """Marca o e-mail como lido no Outlook sem interromper o ciclo em caso de falha."""
+    try:
+        await reader.mark_as_read(message_id)
+    except Exception as e:
+        logger.warning("mark_as_read_failed", message_id=message_id, error=str(e))
 
 
 @celery_app.task(
@@ -78,6 +92,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
 
         for raw in raw_emails:
             email_start = time.monotonic()
+            savepoint = None
             try:
                 parsed = reader.parse_email(raw)
                 message_id = parsed["message_id"]
@@ -87,21 +102,22 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     select(EmailRecord).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    # Já persistido em ciclo anterior (ex.: falha ao marcar lido).
+                    await _mark_read_safely(reader, message_id)
                     continue
 
                 # Classificar com IA
                 ai_result = classifier.classify_email(parsed)
 
-                # Marcar como lido no Outlook
-                try:
-                    await reader.mark_as_read(message_id)
-                except Exception:
-                    pass
-
                 if ai_result.get("is_spam"):
                     await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
                     stats["emails_ignored"] += 1
+                    await _mark_read_safely(reader, message_id)
                     continue
+
+                # Savepoint por e-mail: uma falha aqui não invalida a sessão
+                # nem descarta os e-mails já processados neste ciclo.
+                savepoint = await db.begin_nested()
 
                 # Processar anexos
                 attachments_data = []
@@ -207,9 +223,17 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     ai_result.get("priority", ""),
                     duration_ms,
                 )
+                await savepoint.commit()
+                savepoint = None
                 stats["emails_processed"] += 1
 
+                # Só marca como lido depois de persistido: se algo falhar, o
+                # e-mail continua não lido e é reprocessado no próximo ciclo.
+                await _mark_read_safely(reader, message_id)
+
             except Exception as e:
+                if savepoint is not None and savepoint.is_active:
+                    await savepoint.rollback()
                 logger.error("email_processing_error", error=str(e))
                 stats["errors"] += 1
 
