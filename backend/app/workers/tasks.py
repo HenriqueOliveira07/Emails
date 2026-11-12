@@ -20,6 +20,11 @@ def run_async(coro):
     try:
         return loop.run_until_complete(coro)
     finally:
+        # Conexões asyncpg ficam presas ao loop em que foram criadas.
+        # Descartamos o pool a cada execução para evitar
+        # "attached to a different loop" na próxima tarefa do worker.
+        from app.db.database import engine
+        loop.run_until_complete(engine.dispose())
         loop.close()
 
 
