@@ -212,7 +212,7 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |
@@ -224,3 +224,16 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 ---
 
 Desenvolvido para ambiente corporativo — escalável, seguro e pronto para produção.
+
+## Migrações e testes
+
+```bash
+# Gerar e aplicar migrações (Alembic assíncrono)
+docker compose exec backend alembic revision --autogenerate -m "inicial"
+docker compose exec backend alembic upgrade head
+
+# Testes
+cd backend && python -m pytest -q tests
+```
+
+Arquitetura detalhada e fluxograma operacional: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).

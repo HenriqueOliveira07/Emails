@@ -23,6 +23,14 @@ def run_async(coro):
         loop.close()
 
 
+async def _safe_mark_as_read(reader, message_id: str) -> None:
+    """Marca o e-mail como lido sem interromper o ciclo em caso de falha."""
+    try:
+        await reader.mark_as_read(message_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mark_as_read_failed", message_id=message_id, error=str(e))
+
+
 @celery_app.task(
     bind=True,
     name="app.workers.tasks.check_new_emails",
@@ -89,18 +97,14 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                 if existing.scalar_one_or_none():
                     continue
 
-                # Classificar com IA
-                ai_result = classifier.classify_email(parsed)
-
-                # Marcar como lido no Outlook
-                try:
-                    await reader.mark_as_read(message_id)
-                except Exception:
-                    pass
+                # Classificar com IA (chamada síncrona isolada em thread)
+                ai_result = await asyncio.to_thread(classifier.classify_email, parsed)
 
                 if ai_result.get("is_spam"):
                     await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
                     stats["emails_ignored"] += 1
+                    await db.commit()
+                    await _safe_mark_as_read(reader, message_id)
                     continue
 
                 # Processar anexos
@@ -207,11 +211,24 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     ai_result.get("priority", ""),
                     duration_ms,
                 )
+                # Persistir este e-mail antes de marcá-lo como lido: se algo
+                # falhar acima, o e-mail continua não lido e será reprocessado.
+                await db.commit()
+                await _safe_mark_as_read(reader, message_id)
                 stats["emails_processed"] += 1
 
             except Exception as e:
+                await db.rollback()
                 logger.error("email_processing_error", error=str(e))
                 stats["errors"] += 1
+                try:
+                    await log_svc.log_error(
+                        "email_processing", type(e).__name__, str(e),
+                        {"message_id": raw.get("id", "")},
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
 
         await db.commit()
 
