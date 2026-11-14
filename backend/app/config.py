@@ -37,6 +37,11 @@ class Settings(BaseSettings):
         description="Chave Fernet base64 para criptografia de credenciais",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    API_KEY: str = Field(
+        default="",
+        description="Chave exigida no header X-API-Key para acessar a API REST. "
+        "Vazio = acesso liberado (somente desenvolvimento).",
+    )
 
     # -------------------------------------------------------------------------
     # Banco de Dados PostgreSQL
@@ -151,7 +156,7 @@ class Settings(BaseSettings):
         description="Número máximo de e-mails processados por ciclo",
     )
     ATTACHMENTS_BASE_PATH: str = Field(
-        default="/app/attachments",
+        default="/app/attachments/Emails_Importantes",
         description="Caminho base para salvar anexos",
     )
     MAX_ATTACHMENT_SIZE_MB: int = Field(
@@ -266,6 +271,21 @@ class Settings(BaseSettings):
         "out of office",
         "ausente",
     ]
+
+    # -------------------------------------------------------------------------
+    # Filtros personalizados por remetente (endereço completo ou '@dominio.com')
+    # -------------------------------------------------------------------------
+    VIP_SENDERS: List[str] = Field(default_factory=list, description="Nunca abaixo de ALTO")
+    ALLOWED_SENDERS: List[str] = Field(default_factory=list, description="Nunca descartados")
+    BLOCKED_SENDERS: List[str] = Field(default_factory=list, description="Sempre ignorados")
+
+    # Contexto de horário (usado como sinal de prioridade)
+    TIMEZONE: str = "America/Sao_Paulo"
+    BUSINESS_HOUR_START: int = 8
+    BUSINESS_HOUR_END: int = 18
+
+    # Prioridades que disparam WhatsApp
+    WHATSAPP_NOTIFY_PRIORITIES: List[str] = ["CRITICO", "ALTO"]
 
     # -------------------------------------------------------------------------
     # CORS

@@ -2,7 +2,7 @@
 Leitura de e-mails via Microsoft Graph API com autenticação MSAL.
 """
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -41,9 +41,8 @@ class MSALAuthenticator:
 
         self._token = result["access_token"]
         expires_in = result.get("expires_in", 3600)
-        self._token_expiry = datetime.now(timezone.utc).replace(
-            second=datetime.now(timezone.utc).second + expires_in
-        )
+        # Corrigido: .replace(second=...) estourava (segundos > 59) a cada novo token.
+        self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
         logger.info("msal_token_acquired", expires_in=expires_in)
         return self._token
 
@@ -100,7 +99,8 @@ class OutlookEmailReader:
             "$top": max_emails,
             "$select": (
                 "id,subject,from,toRecipients,ccRecipients,body,bodyPreview,"
-                "receivedDateTime,hasAttachments,importance,conversationId"
+                "receivedDateTime,hasAttachments,importance,conversationId,"
+                "internetMessageHeaders"
             ),
         }
         data = await self._get(url, params=params)
@@ -129,6 +129,15 @@ class OutlookEmailReader:
             for r in raw.get("toRecipients", [])
             if "emailAddress" in r
         ]
+        cc_recipients = [
+            r["emailAddress"]["address"]
+            for r in raw.get("ccRecipients", [])
+            if "emailAddress" in r
+        ]
+        headers = {
+            h.get("name", "").lower(): h.get("value", "")
+            for h in (raw.get("internetMessageHeaders") or [])
+        }
         body_content = raw.get("body", {}).get("content", "")
         body_type = raw.get("body", {}).get("contentType", "text")
 
@@ -144,6 +153,8 @@ class OutlookEmailReader:
             "sender_email": sender.get("address", ""),
             "sender_name": sender.get("name", ""),
             "recipients": recipients,
+            "cc_recipients": cc_recipients,
+            "headers": headers,
             "body_preview": raw.get("bodyPreview", "")[:2000],
             "full_body": body_content,
             "body_type": body_type,

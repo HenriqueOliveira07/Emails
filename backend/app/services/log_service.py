@@ -101,8 +101,9 @@ class LogService:
         )
 
     async def log_error(
-        self, action: str, error_type: str, error_msg: str, context: Dict
+        self, action: str, error_type: str, error_msg: str, context: Optional[Dict] = None
     ) -> None:
+        context = context or {}
         logger.error("system_error", action=action, error_type=error_type, error=error_msg, **context)
         await self._persist(action, context, None, False, error_type, error_msg)
 

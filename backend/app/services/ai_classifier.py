@@ -66,6 +66,12 @@ SPAM/IGNORAR:
 - Promoções e ofertas comerciais
 - E-mails de noreply sem conteúdo acionável
 
+SINAIS DE CONTEXTO (quando fornecidos):
+- Solicitação direta ao usuário (ele no campo Para, poucos destinatários) aumenta a prioridade.
+- Usuário apenas em CC ou e-mail para listas grandes reduz a prioridade, salvo alerta operacional.
+- Alertas de sistemas (noreply) sobre falha/parada/erro NÃO são spam.
+- Recorrência alta do mesmo remetente sobre o mesmo tema indica escalonamento.
+
 Analise o e-mail fornecido e classifique seguindo estritamente as regras acima.
 Responda sempre em português."""
 
@@ -90,6 +96,26 @@ class AIClassifier:
         body_trimmed = body[:3000] if body else ""
         has_attachments = email_data.get("has_attachments", False)
         importance = email_data.get("importance", "normal")
+        sig = email_data.get("signals") or {}
+        context_lines = []
+        if sig:
+            context_lines.append(
+                "Destinatário direto (Para): " + ("Sim" if sig.get("direct_to_user") else "Não")
+            )
+            if sig.get("only_cc"):
+                context_lines.append("Usuário apenas em cópia (CC)")
+            context_lines.append(f"Total de destinatários: {sig.get('recipient_count', 0)}")
+            if sig.get("after_hours"):
+                context_lines.append("Recebido fora do horário comercial")
+            if sig.get("noreply_sender"):
+                context_lines.append("Remetente automático (noreply) — pode ser alerta de sistema")
+            if sig.get("vip_sender"):
+                context_lines.append("Remetente VIP cadastrado")
+            if sig.get("recent_from_sender"):
+                context_lines.append(
+                    f"E-mails deste remetente nas últimas 24h: {sig['recent_from_sender']}"
+                )
+        context_block = "\n".join(context_lines)
 
         user_message = f"""E-mail para classificar:
 
@@ -97,6 +123,7 @@ Remetente: {sender_name} <{sender}>
 Assunto: {subject}
 Importância (sistema): {importance}
 Possui anexos: {"Sim" if has_attachments else "Não"}
+{context_block}
 
 Corpo:
 {body_trimmed}

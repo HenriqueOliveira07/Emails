@@ -104,16 +104,17 @@ docker compose logs -f celery-worker
 
 ## Serviços e Portas
 
-| Serviço | Porta | Descrição |
-|---------|-------|-----------|
-| Nginx | 80 | Proxy principal |
-| Frontend | 3000 | Dashboard Next.js |
-| Backend | 8000 | API FastAPI |
-| Flower | 5555 | Monitor Celery |
+| Serviço | Porta | Exposição | Descrição |
+|---------|-------|-----------|-----------|
+| Nginx | 80 | pública | Proxy principal (único ponto de entrada) |
+| Frontend | 3000 | 127.0.0.1 | Dashboard Next.js |
+| Backend | 8000 | 127.0.0.1 | API FastAPI |
+| Flower | 5555 | 127.0.0.1 + basic auth | Monitor Celery (`FLOWER_PASSWORD` obrigatório) |
 
 ## Dashboard
 
-Acesse `http://localhost` após iniciar os serviços.
+Acesse `http://localhost` após iniciar os serviços. O painel pede a **chave de API**
+(valor de `API_KEY` no `.env`), que fica guardada apenas na sessão do navegador.
 
 **Funcionalidades:**
 - Estatísticas em tempo real (atualização a cada 30s)
@@ -126,6 +127,12 @@ Acesse `http://localhost` após iniciar os serviços.
 ## API REST
 
 Documentação completa: `http://localhost:8000/api/docs`
+
+Todas as rotas, exceto `/api/health`, exigem o header `X-API-Key`:
+
+```bash
+curl -H "X-API-Key: $API_KEY" http://localhost/api/dashboard/stats
+```
 
 Principais endpoints:
 
@@ -186,16 +193,54 @@ open http://localhost:5555
 
 ## Segurança e LGPD
 
-- Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
-- Tokens JWT com expiração configurável
-- Validação de tipos de arquivo (bloqueio de executáveis)
-- Logs de auditoria completos com retenção configurável
-- Sem armazenamento de senhas em texto plano
-- Conexões PostgreSQL com pool e timeout
+Detalhes em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md#segurança-e-lgpd).
+
+- API protegida por `X-API-Key` (fail-closed em produção sem chave)
+- Somente o Nginx é exposto publicamente; Flower com basic auth
+- Anexos: allowlist de extensões, bloqueio de dupla extensão e macros, verificação de
+  magic bytes (executável disfarçado), inspeção de ZIP
+- Logs de auditoria em `processing_logs` (processados, ignorados com motivo, anexos,
+  WhatsApp, erros, tempo de processamento) com retenção configurável
+- Utilitário Fernet (`app/utils/crypto.py`) para cifrar credenciais persistidas
+- Containers do frontend rodam como usuário não-root
+
+## Filtros Personalizados
+
+Configuráveis no `.env` (JSON, endereço completo ou `@dominio`):
+
+| Variável | Efeito |
+|---|---|
+| `VIP_SENDERS` | Nunca descartado; prioridade mínima **ALTO** |
+| `ALLOWED_SENDERS` | Nunca descartado pelo pré-filtro |
+| `BLOCKED_SENDERS` | Sempre ignorado (sem chamar a IA) |
+| `WHATSAPP_NOTIFY_PRIORITIES` | Quais prioridades disparam WhatsApp (padrão `["CRITICO","ALTO"]`) |
+
+Newsletters (`List-Unsubscribe`/`List-Id`), `Precedence: bulk` e respostas automáticas
+(`Auto-Submitted`) são descartados **antes** da IA, o que economiza chamadas à API.
+Alertas de sistemas vindos de `noreply@` **não** são descartados.
+
+## Testes
+
+```bash
+cd backend
+pip install -r requirements.txt pytest pytest-asyncio aiosqlite
+pytest -q
+```
+
+Cobrem: pré-filtro, piso de prioridade, formato da mensagem WhatsApp (horário local),
+segurança de anexos, organização de pastas/deduplicação, token MSAL, autenticação da
+API e o pipeline completo de um e-mail (SQLite em memória, serviços simulados).
+
+## Documentação
+
+- [Arquitetura corporativa](docs/ARQUITETURA.md)
+- [Fluxograma operacional e rotinas](docs/FLUXOGRAMA.md)
 
 ## Variáveis de Ambiente Obrigatórias
 
 ```
+API_KEY                    # Chave de acesso à API/painel
+FLOWER_PASSWORD            # Senha do Flower
 OUTLOOK_CLIENT_ID          # Azure App Registration
 OUTLOOK_CLIENT_SECRET      # Azure App Secret
 OUTLOOK_TENANT_ID          # Azure Tenant ID

@@ -4,6 +4,44 @@ const BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export const api = axios.create({ baseURL: BASE + "/api" });
 
+// A chave de API é digitada pelo operador na tela de acesso e mantida apenas na
+// sessão do navegador (nunca embutida no bundle).
+const KEY_STORAGE = "emails_api_key";
+
+export function getApiKey(): string {
+  try {
+    return typeof window !== "undefined" ? sessionStorage.getItem(KEY_STORAGE) || "" : "";
+  } catch {
+    return "";
+  }
+}
+
+export function setApiKey(key: string) {
+  try {
+    if (key) sessionStorage.setItem(KEY_STORAGE, key);
+    else sessionStorage.removeItem(KEY_STORAGE);
+  } catch {
+    /* armazenamento indisponível */
+  }
+}
+
+api.interceptors.request.use((config) => {
+  const key = getApiKey();
+  if (key) config.headers.set("X-API-Key", key);
+  return config;
+});
+
+api.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err?.response?.status === 401 && typeof window !== "undefined") {
+      setApiKey("");
+      window.dispatchEvent(new Event("emails:unauthorized"));
+    }
+    return Promise.reject(err);
+  },
+);
+
 export interface EmailItem {
   id: number;
   message_id: string;

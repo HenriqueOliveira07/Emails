@@ -21,13 +21,60 @@ logger = structlog.get_logger(__name__)
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xls", ".docx", ".doc",
     ".csv", ".zip", ".jpg", ".jpeg", ".png",
-    ".gif", ".xml", ".txt",
+    ".gif", ".bmp", ".tif", ".tiff", ".webp",
+    ".xml", ".txt",
 }
 
 DANGEROUS_EXTENSIONS = {
     ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs",
     ".js", ".jar", ".msi", ".scr", ".pif", ".com",
+    ".dll", ".hta", ".lnk", ".iso", ".img", ".docm", ".xlsm", ".wsf",
 }
+
+# Assinaturas (magic bytes) esperadas por extensão. Um arquivo cuja assinatura
+# não confere com a extensão é tratado como suspeito e não é salvo.
+_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
+MAGIC_SIGNATURES = {
+    ".pdf": (b"%PDF",),
+    ".zip": _ZIP,
+    ".xlsx": _ZIP,
+    ".docx": _ZIP,
+    ".xls": (b"\xd0\xcf\x11\xe0",),
+    ".doc": (b"\xd0\xcf\x11\xe0",),
+    ".png": (b"\x89PNG",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".bmp": (b"BM",),
+    ".tif": (b"II*\x00", b"MM\x00*"),
+    ".tiff": (b"II*\x00", b"MM\x00*"),
+    ".webp": (b"RIFF",),
+}
+EXECUTABLE_SIGNATURES = (b"MZ", b"\x7fELF", b"#!")
+
+
+def inspect_content(filename: str, content: bytes) -> Tuple[bool, str]:
+    """Verificação de conteúdo malicioso: executáveis disfarçados e ZIPs com executáveis."""
+    ext = Path(filename).suffix.lower()
+    if content[:4].startswith(EXECUTABLE_SIGNATURES):
+        return False, "conteudo_executavel"
+    expected = MAGIC_SIGNATURES.get(ext)
+    if expected and not content.startswith(expected):
+        return False, f"assinatura_invalida_para_{ext}"
+    if ext == ".zip":
+        import io
+        import zipfile
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                for info in zf.infolist():
+                    inner = Path(info.filename).suffix.lower()
+                    if inner in DANGEROUS_EXTENSIONS:
+                        return False, f"zip_contem_{inner}"
+                    if info.flag_bits & 0x1:
+                        return False, "zip_criptografado"
+        except zipfile.BadZipFile:
+            return False, "zip_corrompido"
+    return True, ""
 
 
 class AttachmentHandler:
@@ -37,6 +84,7 @@ class AttachmentHandler:
         self._base = Path(base_path or settings.ATTACHMENTS_BASE_PATH)
         self._base.mkdir(parents=True, exist_ok=True)
         self._max_size_bytes = settings.MAX_ATTACHMENT_SIZE_MB * 1024 * 1024
+        self.blocked: List[Dict[str, str]] = []
 
     def _build_path(self, email_data: Dict[str, Any]) -> Path:
         """Constrói o caminho de destino: /base/YYYY/MM/DD/Remetente/"""
@@ -89,9 +137,12 @@ class AttachmentHandler:
 
     def _is_extension_allowed(self, filename: str) -> Tuple[bool, str]:
         """Verifica se a extensão é permitida e não é perigosa."""
-        ext = Path(filename).suffix.lower()
-        if ext in DANGEROUS_EXTENSIONS:
-            return False, f"Extensão perigosa: {ext}"
+        suffixes = [x.lower() for x in Path(filename).suffixes]
+        ext = suffixes[-1] if suffixes else ""
+        if any(x in DANGEROUS_EXTENSIONS for x in suffixes):
+            return False, f"Extensão perigosa: {''.join(suffixes)}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Extensão não permitida: {ext or '(sem extensão)'}"
         return True, ""
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
@@ -114,6 +165,7 @@ class AttachmentHandler:
             Lista de dicts com filename, file_path, file_size, file_type, ocr_text, pdf_text
         """
         saved = []
+        self.blocked: List[Dict[str, str]] = []
         dest_dir = self._build_path(email_data)
 
         for att in attachments:
@@ -136,6 +188,13 @@ class AttachmentHandler:
             allowed, reason = self._is_extension_allowed(original_name)
             if not allowed:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
+                self.blocked.append({"filename": original_name, "reason": reason})
+                continue
+
+            safe_content, why = inspect_content(original_name, content)
+            if not safe_content:
+                logger.warning("attachment_suspicious", filename=original_name, reason=why)
+                self.blocked.append({"filename": original_name, "reason": why})
                 continue
 
             safe_name = self._sanitize_filename(original_name)
@@ -152,7 +211,7 @@ class AttachmentHandler:
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
-            elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
+            elif ext in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp"}:
                 ocr_text = self._ocr_image(file_path)
 
             logger.info(
