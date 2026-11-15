@@ -48,3 +48,4 @@ Thumbs.db
 
 # ─── Alembic ─────────────────────────────────────────────────
 alembic/versions/*.py
+.pytest_cache/

@@ -10,6 +10,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import aiofiles
 import structlog
@@ -41,6 +42,8 @@ class AttachmentHandler:
     def _build_path(self, email_data: Dict[str, Any]) -> Path:
         """Constrói o caminho de destino: /base/YYYY/MM/DD/Remetente/"""
         received_at: datetime = email_data.get("received_at") or datetime.now(timezone.utc)
+        # Pastas por data seguem o fuso local (evita e-mail das 22h cair no dia seguinte)
+        received_at = received_at.astimezone(ZoneInfo(settings.TIMEZONE))
         sender_email: str = email_data.get("sender_email", "desconhecido")
         sender_name: str = email_data.get("sender_name", "")
 

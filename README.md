@@ -184,6 +184,28 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Testes
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+## Migrations (Alembic)
+
+As tabelas são criadas automaticamente na inicialização. Para evoluir o schema:
+
+```bash
+docker compose exec backend alembic revision --autogenerate -m "descricao"
+docker compose exec backend alembic upgrade head
+```
+
+## Arquitetura detalhada
+
+Veja [docs/ARQUITETURA.md](docs/ARQUITETURA.md) — diagrama de componentes, fluxograma operacional
+do ciclo, garantias de processamento e rotinas agendadas.
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)

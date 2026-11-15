@@ -23,6 +23,13 @@ def run_async(coro):
         loop.close()
 
 
+async def _safe_mark_as_read(reader, message_id: str) -> None:
+    try:
+        await reader.mark_as_read(message_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mark_as_read_failed", message_id=message_id, error=str(e))
+
+
 @celery_app.task(
     bind=True,
     name="app.workers.tasks.check_new_emails",
@@ -78,6 +85,8 @@ async def _check_new_emails_async() -> Dict[str, Any]:
 
         for raw in raw_emails:
             email_start = time.monotonic()
+            savepoint = None
+            message_id = raw.get("id", "")
             try:
                 parsed = reader.parse_email(raw)
                 message_id = parsed["message_id"]
@@ -87,21 +96,21 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     select(EmailRecord).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    # Já persistido em ciclo anterior (mark_as_read falhou): só marca como lido
+                    await _safe_mark_as_read(reader, message_id)
                     continue
 
-                # Classificar com IA
-                ai_result = classifier.classify_email(parsed)
-
-                # Marcar como lido no Outlook
-                try:
-                    await reader.mark_as_read(message_id)
-                except Exception:
-                    pass
+                # Classificar com IA (chamada síncrona -> thread para não bloquear o loop)
+                ai_result = await asyncio.to_thread(classifier.classify_email, parsed)
 
                 if ai_result.get("is_spam"):
                     await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
                     stats["emails_ignored"] += 1
+                    await _safe_mark_as_read(reader, message_id)
                     continue
+
+                # Savepoint por e-mail: uma falha não invalida o lote inteiro
+                savepoint = await db.begin_nested()
 
                 # Processar anexos
                 attachments_data = []
@@ -207,11 +216,24 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     ai_result.get("priority", ""),
                     duration_ms,
                 )
+                await savepoint.commit()
+                savepoint = None
                 stats["emails_processed"] += 1
 
+                # Só marca como lido depois de persistido: se falhar, é reprocessado no próximo ciclo
+                await _safe_mark_as_read(reader, message_id)
+
             except Exception as e:
-                logger.error("email_processing_error", error=str(e))
+                if savepoint is not None and savepoint.is_active:
+                    await savepoint.rollback()
+                logger.error("email_processing_error", error=str(e), message_id=message_id)
                 stats["errors"] += 1
+                try:
+                    await log_svc.log_error(
+                        "email_processing", type(e).__name__, str(e), {"message_id": message_id}
+                    )
+                except Exception:
+                    pass
 
         await db.commit()
 
