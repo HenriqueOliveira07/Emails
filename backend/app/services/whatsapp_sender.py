@@ -3,6 +3,7 @@ Envio de notificações via WhatsApp Business API.
 Suporta Twilio e Meta (WhatsApp Business API direta).
 """
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, Optional
 
 import httpx
@@ -13,11 +14,14 @@ from app.config import settings
 logger = structlog.get_logger(__name__)
 
 PRIORITY_LABELS = {
-    "CRITICO": "🔴 CRÍTICO",
-    "ALTO": "🟠 ALTO",
-    "MEDIO": "🟡 MÉDIO",
-    "BAIXO": "🟢 BAIXO",
+    "CRITICO": "CRÍTICO",
+    "ALTO": "ALTO",
+    "MEDIO": "MÉDIO",
+    "BAIXO": "BAIXO",
 }
+
+# Fuso usado para exibir o horário ao usuário (Graph API retorna UTC)
+LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 class WhatsAppSender:
@@ -30,7 +34,7 @@ class WhatsAppSender:
     def format_message(self, email_data: Dict[str, Any], ai_result: Dict[str, Any]) -> str:
         """Formata a mensagem de notificação no padrão corporativo."""
         priority_raw = ai_result.get("priority", "BAIXO")
-        priority_label = PRIORITY_LABELS.get(priority_raw, f"[{priority_raw}]")
+        priority_label = PRIORITY_LABELS.get(priority_raw, priority_raw)
 
         sender_name = email_data.get("sender_name", "")
         sender_email = email_data.get("sender_email", "")
@@ -38,9 +42,9 @@ class WhatsAppSender:
 
         received_at: Optional[datetime] = email_data.get("received_at")
         if isinstance(received_at, datetime):
-            horario = received_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+            horario = received_at.astimezone(LOCAL_TZ).strftime("%d/%m/%Y %H:%M")
         else:
-            horario = datetime.now().strftime("%d/%m/%Y %H:%M")
+            horario = datetime.now(LOCAL_TZ).strftime("%d/%m/%Y %H:%M")
 
         subject = email_data.get("subject", "(Sem assunto)")
         summary = ai_result.get("summary", email_data.get("body_preview", ""))[:400]
@@ -51,7 +55,7 @@ class WhatsAppSender:
         category = ai_result.get("category", "Geral")
 
         lines = [
-            f"[{priority_raw}]",
+            f"[{priority_label}]",
             "Novo e-mail importante recebido",
             "",
             f"Remetente: {remetente}",
