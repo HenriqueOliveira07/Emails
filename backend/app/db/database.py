@@ -15,14 +15,15 @@ class Base(DeclarativeBase):
 
 
 # Engine assíncrono
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DATABASE_ECHO,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-)
+_engine_kwargs = {"echo": settings.DATABASE_ECHO}
+if not settings.DATABASE_URL.startswith("sqlite"):  # SQLite (testes) não usa pool
+    _engine_kwargs.update(
+        pool_size=settings.DATABASE_POOL_SIZE,
+        max_overflow=settings.DATABASE_MAX_OVERFLOW,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+    )
+engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
 
 # Session factory assíncrona
 AsyncSessionLocal = async_sessionmaker(

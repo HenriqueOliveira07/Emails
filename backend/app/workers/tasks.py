@@ -35,8 +35,31 @@ def check_new_emails(self) -> Dict[str, Any]:
     """
     Tarefa principal: busca e-mails novos, classifica com IA,
     salva anexos e envia notificações WhatsApp.
+
+    Um lock no Redis garante que só um ciclo rode por vez: com intervalo de
+    60 s, um ciclo lento (muitos anexos, API lenta) não pode se sobrepor ao
+    próximo e duplicar notificações.
     """
-    return run_async(_check_new_emails_async())
+    import redis
+
+    from app.config import settings
+
+    client = redis.Redis.from_url(settings.REDIS_URL)
+    lock = client.lock(
+        "email_monitor:check_new_emails",
+        timeout=settings.CYCLE_LOCK_TTL_SECONDS,
+        blocking=False,
+    )
+    if not lock.acquire():
+        logger.info("cycle_skipped_locked")
+        return {"skipped": True, "reason": "ciclo anterior ainda em execução"}
+    try:
+        return run_async(_check_new_emails_async())
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            pass
 
 
 async def _check_new_emails_async() -> Dict[str, Any]:
@@ -69,6 +92,14 @@ async def _check_new_emails_async() -> Dict[str, Any]:
         raw_emails = await reader.get_new_emails(max_emails=settings.MAX_EMAILS_PER_BATCH)
     except Exception as e:
         logger.error("email_fetch_failed", error=str(e))
+        try:  # registra a falha de integração para o painel
+            async with AsyncSessionLocal() as db:
+                await LogService(db).log_error(
+                    "outlook_fetch", type(e).__name__, str(e), {"integration": "microsoft_graph"}
+                )
+                await db.commit()
+        except Exception:
+            pass
         await reader.close()
         await whatsapp.close()
         return {"error": str(e), **stats}
@@ -78,6 +109,9 @@ async def _check_new_emails_async() -> Dict[str, Any]:
 
         for raw in raw_emails:
             email_start = time.monotonic()
+            message_id = raw.get("id", "")
+            # Savepoint por e-mail: uma falha desfaz só este e-mail, não o lote
+            savepoint = await db.begin_nested()
             try:
                 parsed = reader.parse_email(raw)
                 message_id = parsed["message_id"]
@@ -87,19 +121,17 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     select(EmailRecord).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    await savepoint.commit()
+                    await _safe_mark_read(reader, message_id)
                     continue
 
-                # Classificar com IA
-                ai_result = classifier.classify_email(parsed)
-
-                # Marcar como lido no Outlook
-                try:
-                    await reader.mark_as_read(message_id)
-                except Exception:
-                    pass
+                # Classificar com IA (chamada síncrona -> thread para não travar o loop)
+                ai_result = await asyncio.to_thread(classifier.classify_email, parsed)
 
                 if ai_result.get("is_spam"):
                     await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
+                    await savepoint.commit()
+                    await _safe_mark_read(reader, message_id)
                     stats["emails_ignored"] += 1
                     continue
 
@@ -207,11 +239,24 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     ai_result.get("priority", ""),
                     duration_ms,
                 )
+                await savepoint.commit()
+                await db.commit()
+                # Só marca como lido depois de persistido: se algo falhar antes,
+                # o e-mail continua não lido e é reprocessado no próximo ciclo.
+                await _safe_mark_read(reader, message_id)
                 stats["emails_processed"] += 1
 
             except Exception as e:
-                logger.error("email_processing_error", error=str(e))
+                await savepoint.rollback()
+                logger.error("email_processing_error", message_id=message_id, error=str(e))
                 stats["errors"] += 1
+                try:
+                    await log_svc.log_error(
+                        "email_processing", type(e).__name__, str(e), {"message_id": message_id}
+                    )
+                    await db.commit()
+                except Exception:
+                    pass
 
         await db.commit()
 
@@ -229,6 +274,13 @@ async def _check_new_emails_async() -> Dict[str, Any]:
     await whatsapp.close()
     logger.info("cycle_done", **stats)
     return stats
+
+
+async def _safe_mark_read(reader, message_id: str) -> None:
+    try:
+        await reader.mark_as_read(message_id)
+    except Exception as e:  # não bloqueia o fluxo; o dedupe por message_id evita reenvio
+        logger.warning("mark_as_read_failed", message_id=message_id, error=str(e))
 
 
 @celery_app.task(name="app.workers.tasks.send_daily_summary")

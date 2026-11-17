@@ -142,16 +142,22 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 ## Organização de Anexos
 
 ```
-/app/attachments/
-└── Emails_Importantes/
-    └── 2026/
-        └── 05/
-            └── 27/
-                └── Financeiro_Empresa/
-                    ├── boleto_maio_2026.pdf
-                    ├── contrato_fornecedor_abc6f2.docx
-                    └── nf_12345.xml
+/Emails_Importantes/            (volume Docker `attachments_data`)
+└── 2026/
+    └── 05/
+        └── 26/                 (data local, fuso TIMEZONE — padrão America/Sao_Paulo)
+            └── Fornecedor_X/   (nome do remetente, espaços viram "_")
+                ├── boleto_maio_2026.pdf
+                ├── boleto_maio_2026_abc6f2.pdf   (duplicata renomeada)
+                └── nf_12345.xml
 ```
+
+Regras de segurança aplicadas a cada anexo:
+
+- Só são salvos tipos da lista permitida: PDF, XLSX/XLS, DOCX/DOC, CSV, ZIP, imagens (JPG, PNG, GIF, BMP, TIFF, WEBP), XML e TXT.
+- Executáveis e scripts são bloqueados, inclusive com dupla extensão (`fatura.pdf.exe`).
+- O conteúdo é conferido pelos *magic bytes*: um executável renomeado para `.pdf` é bloqueado.
+- Imagens embutidas na assinatura (logos inline) e itens anexados (e-mails encaminhados) são ignorados.
 
 ## Prioridades
 
@@ -161,6 +167,24 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 | ALTO | 🟠 | Aprovações, contratos, pagamentos, diretoria | ✅ Imediato |
 | MÉDIO | 🟡 | Fornecedores, clientes, pendências | ❌ |
 | BAIXO | 🟢 | Informativos, atualizações rotineiras | ❌ |
+
+## Testes
+
+```bash
+cd backend
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt aiosqlite
+pytest -q
+```
+
+A suíte roda sem serviços externos: usa SQLite e simula Outlook e WhatsApp. Ela cobre a classificação por palavras-chave (sem acentos, só palavras inteiras), o formato da mensagem WhatsApp, a organização e o bloqueio de anexos, o cache do token MSAL e um ciclo completo de ponta a ponta, incluindo a deduplicação entre ciclos.
+
+## Garantias do ciclo de leitura
+
+- **Sem sobreposição:** um lock no Redis impede que dois ciclos de 1 minuto rodem ao mesmo tempo e notifiquem em duplicidade.
+- **Sem perda:** o e-mail só é marcado como lido no Outlook depois de gravado no banco. Se algo falhar, ele continua não lido e é reprocessado.
+- **Isolamento de falhas:** cada e-mail roda num savepoint próprio, então um e-mail com erro não desfaz o lote. A falha fica registrada em `processing_logs`.
+- **IA resiliente:** sem `ANTHROPIC_API_KEY`, ou se a API falhar, a classificação cai para as regras de palavras-chave.
 
 ## Comandos Úteis
 

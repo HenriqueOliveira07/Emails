@@ -126,7 +126,7 @@ class Settings(BaseSettings):
         description="Chave da API da Anthropic (Claude)",
     )
     CLAUDE_MODEL: str = Field(
-        default="claude-sonnet-4-6",
+        default="claude-sonnet-5-5",
         description="Modelo Claude a usar para classificação",
     )
     CLAUDE_MAX_TOKENS: int = 1024
@@ -142,6 +142,14 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # Configurações de Processamento
     # -------------------------------------------------------------------------
+    TIMEZONE: str = Field(
+        default="America/Sao_Paulo",
+        description="Fuso usado em horários das notificações e nas pastas de anexos",
+    )
+    CYCLE_LOCK_TTL_SECONDS: int = Field(
+        default=300,
+        description="TTL do lock Redis que impede ciclos de leitura sobrepostos",
+    )
     CHECK_INTERVAL_SECONDS: int = Field(
         default=60,
         description="Intervalo de verificação de novos e-mails em segundos",
@@ -151,7 +159,7 @@ class Settings(BaseSettings):
         description="Número máximo de e-mails processados por ciclo",
     )
     ATTACHMENTS_BASE_PATH: str = Field(
-        default="/app/attachments",
+        default="/Emails_Importantes",
         description="Caminho base para salvar anexos",
     )
     MAX_ATTACHMENT_SIZE_MB: int = Field(

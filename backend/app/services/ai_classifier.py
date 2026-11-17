@@ -8,6 +8,7 @@ import anthropic
 import structlog
 
 from app.config import settings
+from app.utils.timeutils import find_keywords
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +84,9 @@ class AIClassifier:
         Returns:
             Dict com priority, category, summary, keywords_found, is_spam, action_required
         """
+        if not settings.ANTHROPIC_API_KEY:
+            return self._fallback_classification(email_data)
+
         subject = email_data.get("subject", "(Sem assunto)")
         sender = email_data.get("sender_email", "")
         sender_name = email_data.get("sender_name", "")
@@ -127,17 +131,16 @@ Classifique este e-mail."""
 
         except anthropic.APIError as e:
             logger.error("claude_api_error", error=str(e))
+        except Exception as e:  # rede, timeout, resposta inesperada: nunca derruba o ciclo
+            logger.error("claude_unexpected_error", error=str(e))
 
         return self._fallback_classification(email_data)
 
     def _fallback_classification(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
         """Classificação por palavras-chave caso a API falhe."""
-        text = (
-            (email_data.get("subject", "") + " " + email_data.get("body_preview", "")).lower()
-        )
+        text = email_data.get("subject", "") + " " + email_data.get("body_preview", "")
 
-        spam_kws = [kw.lower() for kw in settings.SPAM_KEYWORDS]
-        if any(kw in text for kw in spam_kws):
+        if find_keywords(text, settings.SPAM_KEYWORDS):
             return {
                 "priority": "BAIXO",
                 "category": "Spam/Newsletter",
@@ -148,13 +151,9 @@ Classifique este e-mail."""
                 "action_description": "",
             }
 
-        critical_kws = [kw.lower() for kw in settings.PRIORITY_CRITICAL_KEYWORDS]
-        high_kws = [kw.lower() for kw in settings.PRIORITY_HIGH_KEYWORDS]
-        medium_kws = [kw.lower() for kw in settings.PRIORITY_MEDIUM_KEYWORDS]
-
-        found_critical = [kw for kw in critical_kws if kw in text]
-        found_high = [kw for kw in high_kws if kw in text]
-        found_medium = [kw for kw in medium_kws if kw in text]
+        found_critical = find_keywords(text, settings.PRIORITY_CRITICAL_KEYWORDS)
+        found_high = find_keywords(text, settings.PRIORITY_HIGH_KEYWORDS)
+        found_medium = find_keywords(text, settings.PRIORITY_MEDIUM_KEYWORDS)
 
         if found_critical:
             priority = "CRITICO"
