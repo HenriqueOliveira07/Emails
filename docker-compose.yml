@@ -72,6 +72,7 @@ services:
     command: celery -A app.workers.celery_app worker --loglevel=info -Q high,low --concurrency=2
     env_file: .env
     environment:
+      DB_USE_NULLPOOL: "1"
       DATABASE_URL: postgresql+asyncpg://emails_user:${POSTGRES_PASSWORD:-emails_pass}@postgres:5432/emails_db
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_BACKEND: redis://redis:6379/1

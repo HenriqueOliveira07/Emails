@@ -1,7 +1,10 @@
 """
 Configuração do banco de dados com SQLAlchemy assíncrono.
 """
+import os
 from typing import AsyncGenerator
+
+from sqlalchemy.pool import NullPool
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -15,14 +18,21 @@ class Base(DeclarativeBase):
 
 
 # Engine assíncrono
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DATABASE_ECHO,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-)
+# - Workers Celery criam um event loop novo por tarefa; conexões em pool
+#   ficariam presas ao loop anterior ("attached to a different loop").
+#   Por isso usamos NullPool quando DB_USE_NULLPOOL=1 (definido nos workers).
+# - SQLite (testes locais) não aceita pool_size/max_overflow.
+_engine_kwargs: dict = {"echo": settings.DATABASE_ECHO, "pool_pre_ping": True}
+if os.getenv("DB_USE_NULLPOOL") == "1" or settings.DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs["poolclass"] = NullPool
+else:
+    _engine_kwargs.update(
+        pool_size=settings.DATABASE_POOL_SIZE,
+        max_overflow=settings.DATABASE_MAX_OVERFLOW,
+        pool_recycle=3600,
+    )
+
+engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
 
 # Session factory assíncrona
 AsyncSessionLocal = async_sessionmaker(

@@ -184,6 +184,20 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Testes
+
+Testes ponta a ponta do ciclo (Outlook, Claude e WhatsApp simulados; SQLite temporário — não precisa de PostgreSQL/Redis):
+
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+pytest -q
+```
+
+Cobrem: classificação → anexos → WhatsApp → banco; spam ignorado; anexos duplicados renomeados e `.exe` bloqueado;
+pasta pelo dia local (`TIMEZONE`, padrão `America/Sao_Paulo`); e-mail com erro **não** é marcado como lido
+(é reprocessado no próximo ciclo) e não derruba os demais do lote; duplicatas não são reprocessadas.
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
@@ -212,7 +226,7 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |

@@ -125,8 +125,12 @@ class Settings(BaseSettings):
         default="",
         description="Chave da API da Anthropic (Claude)",
     )
+    TIMEZONE: str = Field(
+        default="America/Sao_Paulo",
+        description="Fuso horário local usado em notificações e pastas de anexos",
+    )
     CLAUDE_MODEL: str = Field(
-        default="claude-sonnet-4-6",
+        default="claude-sonnet-5-5",
         description="Modelo Claude a usar para classificação",
     )
     CLAUDE_MAX_TOKENS: int = 1024

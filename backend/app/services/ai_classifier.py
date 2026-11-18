@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import anthropic
 import structlog
 
+from app.utils.sanitizer import html_to_text
 from app.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -86,7 +87,12 @@ class AIClassifier:
         subject = email_data.get("subject", "(Sem assunto)")
         sender = email_data.get("sender_email", "")
         sender_name = email_data.get("sender_name", "")
-        body = email_data.get("body_preview", "") or email_data.get("full_body", "")
+        # Corpo completo (convertido de HTML) é preferível ao bodyPreview do Graph,
+        # que vem truncado em ~255 caracteres e prejudica o resumo.
+        full_body = email_data.get("full_body", "") or ""
+        if full_body and email_data.get("body_type", "text").lower() == "html":
+            full_body = html_to_text(full_body)
+        body = full_body or email_data.get("body_preview", "")
         body_trimmed = body[:3000] if body else ""
         has_attachments = email_data.get("has_attachments", False)
         importance = email_data.get("importance", "normal")
