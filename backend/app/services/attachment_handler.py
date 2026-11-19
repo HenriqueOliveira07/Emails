@@ -10,6 +10,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import aiofiles
 import structlog
@@ -41,6 +42,10 @@ class AttachmentHandler:
     def _build_path(self, email_data: Dict[str, Any]) -> Path:
         """Constrói o caminho de destino: /base/YYYY/MM/DD/Remetente/"""
         received_at: datetime = email_data.get("received_at") or datetime.now(timezone.utc)
+        if received_at.tzinfo is None:
+            received_at = received_at.replace(tzinfo=timezone.utc)
+        # Pastas por data local (America/Sao_Paulo), não UTC
+        received_at = received_at.astimezone(ZoneInfo("America/Sao_Paulo"))
         sender_email: str = email_data.get("sender_email", "desconhecido")
         sender_name: str = email_data.get("sender_name", "")
 
@@ -61,7 +66,8 @@ class AttachmentHandler:
     def _sanitize_dirname(name: str) -> str:
         """Remove caracteres inválidos de nomes de diretório."""
         safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
-        safe = safe.strip(". ")
+        safe = re.sub(r"\s+", "_", safe.strip())
+        safe = safe.strip("._ ")
         return safe[:80] or "desconhecido"
 
     @staticmethod
@@ -93,6 +99,12 @@ class AttachmentHandler:
         if ext in DANGEROUS_EXTENSIONS:
             return False, f"Extensão perigosa: {ext}"
         return True, ""
+
+    @staticmethod
+    def _looks_executable(content: bytes) -> bool:
+        """Detecta executáveis disfarçados pela assinatura (magic bytes)."""
+        signatures = (b"MZ", b"\x7fELF", b"\xca\xfe\xba\xbe", b"#!")
+        return any(content.startswith(sig) for sig in signatures)
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
         """Extrai o conteúdo binário de um anexo da Graph API."""
@@ -134,6 +146,8 @@ class AttachmentHandler:
                 continue
 
             allowed, reason = self._is_extension_allowed(original_name)
+            if allowed and self._looks_executable(content):
+                allowed, reason = False, "Conteúdo executável detectado (assinatura binária)"
             if not allowed:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
                 continue

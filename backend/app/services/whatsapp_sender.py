@@ -3,6 +3,7 @@ Envio de notificações via WhatsApp Business API.
 Suporta Twilio e Meta (WhatsApp Business API direta).
 """
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, Optional
 
 import httpx
@@ -11,6 +12,16 @@ import structlog
 from app.config import settings
 
 logger = structlog.get_logger(__name__)
+
+LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
+
+# Rótulo exibido entre colchetes na primeira linha da mensagem
+PRIORITY_TAGS = {
+    "CRITICO": "CRÍTICO",
+    "ALTO": "ALTO",
+    "MEDIO": "MÉDIO",
+    "BAIXO": "BAIXO",
+}
 
 PRIORITY_LABELS = {
     "CRITICO": "🔴 CRÍTICO",
@@ -38,9 +49,11 @@ class WhatsAppSender:
 
         received_at: Optional[datetime] = email_data.get("received_at")
         if isinstance(received_at, datetime):
-            horario = received_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+            if received_at.tzinfo is None:
+                received_at = received_at.replace(tzinfo=timezone.utc)
+            horario = received_at.astimezone(LOCAL_TZ).strftime("%d/%m/%Y %H:%M")
         else:
-            horario = datetime.now().strftime("%d/%m/%Y %H:%M")
+            horario = datetime.now(LOCAL_TZ).strftime("%d/%m/%Y %H:%M")
 
         subject = email_data.get("subject", "(Sem assunto)")
         summary = ai_result.get("summary", email_data.get("body_preview", ""))[:400]
@@ -51,7 +64,7 @@ class WhatsAppSender:
         category = ai_result.get("category", "Geral")
 
         lines = [
-            f"[{priority_raw}]",
+            f"[{PRIORITY_TAGS.get(priority_raw, priority_raw)}]",
             "Novo e-mail importante recebido",
             "",
             f"Remetente: {remetente}",

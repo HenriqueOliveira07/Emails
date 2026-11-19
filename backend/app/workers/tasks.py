@@ -23,6 +23,31 @@ def run_async(coro):
         loop.close()
 
 
+FINANCIAL_HINTS = ("boleto", "nota fiscal", "nf-e", "nfe", "danfe", "vencimento", "cnpj", "valor")
+
+
+def _enrich_attachments(classifier, attachments: list) -> None:
+    """Resumo de PDFs e extração de dados de boletos/notas fiscais (PDF, OCR e XML)."""
+    from app.config import settings
+
+    if not settings.ANTHROPIC_API_KEY:
+        return
+    for att in attachments:
+        text = att.get("pdf_text") or att.get("ocr_text") or ""
+        if att.get("pdf_text"):
+            att["pdf_summary"] = classifier.summarize_pdf(att["pdf_text"])
+        if text and any(h in text.lower() for h in FINANCIAL_HINTS):
+            att["invoice_data"] = classifier.extract_invoice_data(text)
+
+
+async def _safe_mark_as_read(reader, message_id: str) -> None:
+    """Marca como lido no Outlook sem interromper o ciclo em caso de falha."""
+    try:
+        await reader.mark_as_read(message_id)
+    except Exception as e:  # pragma: no cover - falha de rede
+        logger.warning("mark_as_read_failed", message_id=message_id, error=str(e))
+
+
 @celery_app.task(
     bind=True,
     name="app.workers.tasks.check_new_emails",
@@ -78,6 +103,8 @@ async def _check_new_emails_async() -> Dict[str, Any]:
 
         for raw in raw_emails:
             email_start = time.monotonic()
+            message_id = raw.get("id", "")
+            savepoint = await db.begin_nested()
             try:
                 parsed = reader.parse_email(raw)
                 message_id = parsed["message_id"]
@@ -87,19 +114,18 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     select(EmailRecord).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    await savepoint.rollback()
+                    await _safe_mark_as_read(reader, message_id)
                     continue
 
                 # Classificar com IA
                 ai_result = classifier.classify_email(parsed)
 
-                # Marcar como lido no Outlook
-                try:
-                    await reader.mark_as_read(message_id)
-                except Exception:
-                    pass
-
                 if ai_result.get("is_spam"):
                     await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
+                    await savepoint.commit()
+                    await db.commit()
+                    await _safe_mark_as_read(reader, message_id)
                     stats["emails_ignored"] += 1
                     continue
 
@@ -109,6 +135,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     try:
                         raw_attachments = await reader.get_attachments(message_id)
                         attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
+                        _enrich_attachments(classifier, attachments_data)
                     except Exception as e:
                         logger.warning("attachment_processing_failed", error=str(e))
 
@@ -160,6 +187,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         ocr_text=att.get("ocr_text", ""),
                         pdf_text=att.get("pdf_text", ""),
                         invoice_data=att.get("invoice_data", {}),
+                        ai_summary=att.get("pdf_summary", ""),
                     )
                     db.add(att_record)
                     stats["attachments_saved"] += 1
@@ -207,13 +235,24 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     ai_result.get("priority", ""),
                     duration_ms,
                 )
+                await savepoint.commit()
+                await db.commit()
+                # Só marca como lido depois de persistido: falhas são reprocessadas no próximo ciclo
+                await _safe_mark_as_read(reader, message_id)
                 stats["emails_processed"] += 1
 
             except Exception as e:
-                logger.error("email_processing_error", error=str(e))
+                logger.error("email_processing_error", message_id=message_id, error=str(e))
+                if savepoint.is_active:
+                    await savepoint.rollback()
                 stats["errors"] += 1
-
-        await db.commit()
+                try:
+                    await log_svc.log_error(
+                        "email_processing", type(e).__name__, str(e), {"message_id": message_id}
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
 
         cycle_ms = (time.monotonic() - cycle_start) * 1000
         await log_svc.log_cycle_complete(

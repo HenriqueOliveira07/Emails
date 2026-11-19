@@ -184,6 +184,19 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Testes
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest -q
+```
+
+Os testes usam SQLite temporário e integrações simuladas (Outlook/WhatsApp), cobrindo:
+classificação por palavras-chave (fallback sem Claude), formato da mensagem WhatsApp,
+organização de anexos por data/remetente, bloqueio de executáveis disfarçados e
+o ciclo completo (processado / ignorado / falha isolada / deduplicação).
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)

@@ -103,6 +103,9 @@ Corpo:
 
 Classifique este e-mail."""
 
+        if not settings.ANTHROPIC_API_KEY:
+            return self._fallback_classification(email_data)
+
         try:
             response = self._client.messages.create(
                 model=settings.CLAUDE_MODEL,
@@ -125,8 +128,8 @@ Classifique este e-mail."""
                     )
                     return result
 
-        except anthropic.APIError as e:
-            logger.error("claude_api_error", error=str(e))
+        except Exception as e:  # API indisponível, sem chave, resposta inválida...
+            logger.error("claude_api_error", error_type=type(e).__name__, error=str(e))
 
         return self._fallback_classification(email_data)
 
@@ -196,7 +199,8 @@ Classifique este e-mail."""
                 }],
             )
             return response.content[0].text if response.content else ""
-        except anthropic.APIError:
+        except Exception as e:
+            logger.warning("pdf_summary_failed", error=str(e))
             return ""
 
     def extract_invoice_data(self, text: str) -> Dict[str, Any]:
@@ -234,6 +238,6 @@ Classifique este e-mail."""
             for block in response.content:
                 if block.type == "tool_use":
                     return block.input
-        except anthropic.APIError:
-            pass
+        except Exception as e:
+            logger.warning("invoice_extraction_failed", error=str(e))
         return {}
