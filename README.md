@@ -106,10 +106,13 @@ docker compose logs -f celery-worker
 
 | Serviço | Porta | Descrição |
 |---------|-------|-----------|
-| Nginx | 80 | Proxy principal |
-| Frontend | 3000 | Dashboard Next.js |
-| Backend | 8000 | API FastAPI |
-| Flower | 5555 | Monitor Celery |
+| Nginx | 80 | Proxy principal (único serviço exposto na rede) |
+| Frontend | 127.0.0.1:3000 | Dashboard Next.js |
+| Backend | 127.0.0.1:8000 | API FastAPI |
+| Flower | 127.0.0.1:5555 | Monitor Celery |
+
+Backend, frontend e Flower ficam presos ao `localhost` do servidor; o acesso
+externo passa obrigatoriamente pelo nginx.
 
 ## Dashboard
 
@@ -182,9 +185,27 @@ docker compose up -d --scale celery-worker=3
 
 # Ver tarefas no Flower
 open http://localhost:5555
+
+# Rodar a suíte de testes do backend (sem Docker, usa SQLite)
+cd backend && pip install -r requirements-dev.txt && python -m pytest -q tests
 ```
 
 ## Segurança e LGPD
+
+### Controle de acesso
+
+- **API REST:** todas as rotas `/api/*` (exceto `/api/health`) exigem o header
+  `X-API-Key` igual a `API_ACCESS_KEY`, comparado em tempo constante. Sem a
+  chave a API responde `401`. Com `API_ACCESS_KEY` vazio a verificação é
+  desligada e um aviso é registrado no log (uso apenas local).
+- **Painel:** o nginx exige login HTTP Basic (`DASHBOARD_USER` /
+  `DASHBOARD_PASSWORD`) e injeta a `X-API-Key` ao repassar para o backend, de
+  modo que a chave nunca chega ao navegador. Acessando o Next.js direto na porta
+  3000, o `middleware.ts` faz a mesma injeção no servidor.
+- Para uso fora da rede interna, coloque TLS (HTTPS) na frente do nginx: o
+  HTTP Basic envia a senha em base64.
+
+### Demais controles
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
 - Tokens JWT com expiração configurável
@@ -205,6 +226,8 @@ WHATSAPP_TO_NUMBER         # Seu número WhatsApp
 TWILIO_ACCOUNT_SID         # Twilio Account SID
 TWILIO_AUTH_TOKEN          # Twilio Auth Token
 WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
+API_ACCESS_KEY             # Chave da API REST (header X-API-Key)
+DASHBOARD_PASSWORD         # Senha do painel no nginx
 ```
 
 ## Tecnologias

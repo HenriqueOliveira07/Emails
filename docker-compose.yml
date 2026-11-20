@@ -53,7 +53,7 @@ services:
       - attachments_data:/app/attachments
       - logs_data:/app/logs
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,7 +119,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_BACKEND: redis://redis:6379/1
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     depends_on:
       - redis
     networks:
@@ -134,8 +134,9 @@ services:
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ""
+      API_ACCESS_KEY: ${API_ACCESS_KEY:-}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
     networks:
@@ -148,8 +149,13 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    environment:
+      API_ACCESS_KEY: ${API_ACCESS_KEY:-}
+      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/entrypoint.d/15-dashboard-auth.sh:/docker-entrypoint.d/15-dashboard-auth.sh:ro
     depends_on:
       - backend
       - frontend

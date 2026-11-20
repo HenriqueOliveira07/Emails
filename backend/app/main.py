@@ -5,7 +5,7 @@ import time
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -18,6 +18,8 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Iniciando sistema de monitoramento de e-mails...")
+    if not settings.API_ACCESS_KEY:
+        logger.warning("api_access_key_disabled", detail="API_ACCESS_KEY vazio: API sem controle de acesso")
     await create_tables()
     logger.info("Tabelas criadas/verificadas com sucesso")
     yield
@@ -65,11 +67,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 from app.api.routes import dashboard, emails, notifications, settings as settings_router  # noqa: E402
+from app.api.security import require_api_key  # noqa: E402
 
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-app.include_router(emails.router, prefix="/api/emails", tags=["E-mails"])
-app.include_router(notifications.router, prefix="/api/notifications", tags=["Notificações"])
-app.include_router(settings_router.router, prefix="/api/settings", tags=["Configurações"])
+_protected = [Depends(require_api_key)]
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"], dependencies=_protected)
+app.include_router(emails.router, prefix="/api/emails", tags=["E-mails"], dependencies=_protected)
+app.include_router(
+    notifications.router, prefix="/api/notifications", tags=["Notificações"], dependencies=_protected
+)
+app.include_router(
+    settings_router.router, prefix="/api/settings", tags=["Configurações"], dependencies=_protected
+)
 
 
 @app.get("/api/health", tags=["Sistema"])

@@ -4,6 +4,7 @@ Suporta Twilio e Meta (WhatsApp Business API direta).
 """
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 import structlog
@@ -36,11 +37,14 @@ class WhatsAppSender:
         sender_email = email_data.get("sender_email", "")
         remetente = f"{sender_name} <{sender_email}>" if sender_name else sender_email
 
+        tz = ZoneInfo(settings.TIMEZONE)
         received_at: Optional[datetime] = email_data.get("received_at")
         if isinstance(received_at, datetime):
-            horario = received_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+            if received_at.tzinfo is None:  # Graph API retorna UTC
+                received_at = received_at.replace(tzinfo=timezone.utc)
+            horario = received_at.astimezone(tz).strftime("%d/%m/%Y %H:%M")
         else:
-            horario = datetime.now().strftime("%d/%m/%Y %H:%M")
+            horario = datetime.now(tz).strftime("%d/%m/%Y %H:%M")
 
         subject = email_data.get("subject", "(Sem assunto)")
         summary = ai_result.get("summary", email_data.get("body_preview", ""))[:400]

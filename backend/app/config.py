@@ -268,6 +268,25 @@ class Settings(BaseSettings):
     ]
 
     # -------------------------------------------------------------------------
+    # Controle de acesso à API REST
+    # -------------------------------------------------------------------------
+    API_ACCESS_KEY: str = Field(
+        default="",
+        description=(
+            "Chave exigida no header X-API-Key em todas as rotas /api (exceto /api/health). "
+            "Vazio desativa a verificação (somente desenvolvimento)."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Fuso horário usado nas mensagens de WhatsApp e no agrupamento por dia
+    # -------------------------------------------------------------------------
+    TIMEZONE: str = Field(
+        default="America/Sao_Paulo",
+        description="Fuso horário IANA para exibição de horários",
+    )
+
+    # -------------------------------------------------------------------------
     # CORS
     # -------------------------------------------------------------------------
     CORS_ORIGINS: List[str] = [
