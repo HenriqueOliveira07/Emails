@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xls", ".docx", ".doc",
     ".csv", ".zip", ".jpg", ".jpeg", ".png",
-    ".gif", ".xml", ".txt",
+    ".gif", ".bmp", ".tif", ".tiff", ".webp", ".xml", ".txt",
 }
 
 DANGEROUS_EXTENSIONS = {
@@ -92,6 +92,8 @@ class AttachmentHandler:
         ext = Path(filename).suffix.lower()
         if ext in DANGEROUS_EXTENSIONS:
             return False, f"Extensão perigosa: {ext}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Extensão não permitida: {ext or '(sem extensão)'}"
         return True, ""
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
@@ -114,9 +116,13 @@ class AttachmentHandler:
             Lista de dicts com filename, file_path, file_size, file_type, ocr_text, pdf_text
         """
         saved = []
-        dest_dir = self._build_path(email_data)
+        dest_dir: Optional[Path] = None
 
         for att in attachments:
+            # Ignora itens que não são arquivos (ex.: itemAttachment) e imagens inline de assinatura
+            odata_type = att.get("@odata.type", "#microsoft.graph.fileAttachment")
+            if odata_type != "#microsoft.graph.fileAttachment" or att.get("isInline"):
+                continue
             original_name = att.get("name", "arquivo_sem_nome")
             mime_type = att.get("contentType", "") or mimetypes.guess_type(original_name)[0] or ""
             content = self._get_content_bytes(att)
@@ -138,6 +144,8 @@ class AttachmentHandler:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
                 continue
 
+            if dest_dir is None:
+                dest_dir = self._build_path(email_data)
             safe_name = self._sanitize_filename(original_name)
             unique_name = self._unique_filename(dest_dir, safe_name)
             file_path = dest_dir / unique_name

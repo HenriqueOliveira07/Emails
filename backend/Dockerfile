@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/attachments /app/logs
+RUN mkdir -p /Emails_Importantes /app/logs
 
 EXPOSE 8000
 

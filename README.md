@@ -49,6 +49,8 @@ AIClassifier (Claude) ──► Prioridade + Resumo
       └── PostgreSQL ──► Registro completo + Logs
 ```
 
+> Arquitetura detalhada e fluxograma operacional: [docs/ARQUITETURA.md](docs/ARQUITETURA.md)
+
 ## Pré-requisitos
 
 - Docker e Docker Compose v2+
@@ -142,15 +144,14 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 ## Organização de Anexos
 
 ```
-/app/attachments/
-└── Emails_Importantes/
-    └── 2026/
-        └── 05/
-            └── 27/
-                └── Financeiro_Empresa/
-                    ├── boleto_maio_2026.pdf
-                    ├── contrato_fornecedor_abc6f2.docx
-                    └── nf_12345.xml
+/Emails_Importantes/          (no host: ./Emails_Importantes)
+└── 2026/
+    └── 05/
+        └── 27/
+            └── Financeiro_Empresa/
+                ├── boleto_maio_2026.pdf
+                ├── contrato_fornecedor_abc6f2.docx
+                └── nf_12345.xml
 ```
 
 ## Prioridades
@@ -184,6 +185,21 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Autenticação da API
+
+Defina `API_KEY` no `.env` (ex.: `openssl rand -hex 32`) e o mesmo valor em `NEXT_PUBLIC_API_KEY` para o dashboard.
+Todas as rotas `/api/*` (exceto `/api/health`) passam a exigir o header `X-API-Key`.
+
+```bash
+curl -H "X-API-Key: $API_KEY" http://localhost/api/dashboard/stats
+```
+
+## Testes
+
+```bash
+cd backend && pip install -r requirements.txt && pytest
+```
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
@@ -212,7 +228,7 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |

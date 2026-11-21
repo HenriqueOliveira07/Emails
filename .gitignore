@@ -48,3 +48,4 @@ Thumbs.db
 
 # ─── Alembic ─────────────────────────────────────────────────
 alembic/versions/*.py
+Emails_Importantes/
