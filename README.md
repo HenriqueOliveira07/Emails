@@ -162,6 +162,31 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 | MÉDIO | 🟡 | Fornecedores, clientes, pendências | ❌ |
 | BAIXO | 🟢 | Informativos, atualizações rotineiras | ❌ |
 
+## Regras e Filtros por Remetente
+
+Além da IA, regras determinísticas (`backend/app/services/sender_rules.py`) ajustam a prioridade:
+
+- `VIP_SENDERS`: e-mails ou domínios (`@banco.com.br`) nunca tratados como spam e no mínimo **ALTO**
+- `BLOCKED_SENDERS`: sempre ignorados (registrados no log como ignorados)
+- Fora do horário comercial (`BUSINESS_HOURS_START`/`END`, fuso `TIMEZONE`) com ação requerida: ALTO → CRÍTICO
+- Recorrência (≥5 e-mails do mesmo remetente em 24h) com ação requerida: MÉDIO → ALTO
+
+## Segurança de Anexos
+
+Allowlist de extensões, bloqueio de dupla extensão (`fatura.pdf.exe`), validação de magic bytes
+(executável renomeado para `.pdf` é bloqueado), inspeção de ZIP (executáveis internos e zip bomb).
+Bloqueios são registrados em `processing_logs` com ação `attachment_blocked`.
+
+## Testes
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest
+```
+
+Veja também [docs/ARQUITETURA.md](docs/ARQUITETURA.md) para a arquitetura corporativa e o fluxograma operacional.
+
 ## Comandos Úteis
 
 ```bash

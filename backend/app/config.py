@@ -126,7 +126,7 @@ class Settings(BaseSettings):
         description="Chave da API da Anthropic (Claude)",
     )
     CLAUDE_MODEL: str = Field(
-        default="claude-sonnet-4-6",
+        default="claude-sonnet-5-5",
         description="Modelo Claude a usar para classificação",
     )
     CLAUDE_MAX_TOKENS: int = 1024
@@ -266,6 +266,21 @@ class Settings(BaseSettings):
         "out of office",
         "ausente",
     ]
+
+    # -------------------------------------------------------------------------
+    # Filtros personalizados por remetente
+    # -------------------------------------------------------------------------
+    VIP_SENDERS: List[str] = Field(
+        default_factory=list,
+        description="Remetentes/domínios sempre tratados como no mínimo ALTO (ex: diretoria@empresa.com, @banco.com.br)",
+    )
+    BLOCKED_SENDERS: List[str] = Field(
+        default_factory=list,
+        description="Remetentes/domínios sempre ignorados (ex: @marketing.com)",
+    )
+    TIMEZONE: str = "America/Sao_Paulo"
+    BUSINESS_HOURS_START: int = 7
+    BUSINESS_HOURS_END: int = 19
 
     # -------------------------------------------------------------------------
     # CORS

@@ -21,8 +21,26 @@ logger = structlog.get_logger(__name__)
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xls", ".docx", ".doc",
     ".csv", ".zip", ".jpg", ".jpeg", ".png",
-    ".gif", ".xml", ".txt",
+    ".gif", ".xml", ".txt", ".xlsm", ".bmp", ".tif", ".tiff", ".webp",
 }
+
+# Assinaturas (magic bytes) esperadas por extensão — evita executáveis renomeados
+MAGIC_SIGNATURES = {
+    ".pdf": [b"%PDF"],
+    ".zip": [b"PK\x03\x04", b"PK\x05\x06"],
+    ".xlsx": [b"PK\x03\x04"],
+    ".xlsm": [b"PK\x03\x04"],
+    ".docx": [b"PK\x03\x04"],
+    ".png": [b"\x89PNG"],
+    ".jpg": [b"\xff\xd8\xff"],
+    ".jpeg": [b"\xff\xd8\xff"],
+    ".gif": [b"GIF87a", b"GIF89a"],
+    ".doc": [b"\xd0\xcf\x11\xe0"],
+    ".xls": [b"\xd0\xcf\x11\xe0"],
+}
+EXECUTABLE_SIGNATURES = [b"MZ", b"\x7fELF", b"#!"]
+MAX_ZIP_RATIO = 100  # descompactado/compactado
+MAX_ZIP_UNCOMPRESSED = 500 * 1024 * 1024
 
 DANGEROUS_EXTENSIONS = {
     ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs",
@@ -30,10 +48,18 @@ DANGEROUS_EXTENSIONS = {
 }
 
 
+FINANCIAL_HINTS = re.compile(
+    r"boleto|nota fiscal|nf-?e|danfe|vencimento|linha digit|cnpj|valor total|fatura",
+    re.IGNORECASE,
+)
+
+
 class AttachmentHandler:
     """Gerencia o salvamento e processamento de anexos de e-mail."""
 
-    def __init__(self, base_path: Optional[str] = None) -> None:
+    def __init__(self, base_path: Optional[str] = None, classifier: Any = None) -> None:
+        self._classifier = classifier
+        self.blocked: List[Dict[str, str]] = []
         self._base = Path(base_path or settings.ATTACHMENTS_BASE_PATH)
         self._base.mkdir(parents=True, exist_ok=True)
         self._max_size_bytes = settings.MAX_ATTACHMENT_SIZE_MB * 1024 * 1024
@@ -88,10 +114,42 @@ class AttachmentHandler:
         return new_name
 
     def _is_extension_allowed(self, filename: str) -> Tuple[bool, str]:
-        """Verifica se a extensão é permitida e não é perigosa."""
+        """Verifica se a extensão é permitida e não é perigosa (inclui dupla extensão)."""
+        suffixes = [x.lower() for x in Path(filename).suffixes]
+        ext = suffixes[-1] if suffixes else ""
+        if any(x in DANGEROUS_EXTENSIONS for x in suffixes):
+            return False, f"Extensão perigosa: {''.join(suffixes)}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Extensão não permitida: {ext or '(sem extensão)'}"
+        return True, ""
+
+    @staticmethod
+    def _check_content(filename: str, content: bytes) -> Tuple[bool, str]:
+        """Valida magic bytes e protege contra zip bombs / executáveis disfarçados."""
         ext = Path(filename).suffix.lower()
-        if ext in DANGEROUS_EXTENSIONS:
-            return False, f"Extensão perigosa: {ext}"
+        head = content[:8]
+        expected = MAGIC_SIGNATURES.get(ext)
+        if expected and not any(head.startswith(sig) for sig in expected):
+            return False, f"Conteúdo não corresponde à extensão {ext}"
+        if not expected and any(head.startswith(sig) for sig in EXECUTABLE_SIGNATURES):
+            return False, "Conteúdo executável detectado"
+        if ext == ".zip":
+            import io
+            import zipfile
+            try:
+                with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                    total = 0
+                    for info in zf.infolist():
+                        total += info.file_size
+                        inner = [x.lower() for x in Path(info.filename).suffixes]
+                        if any(x in DANGEROUS_EXTENSIONS for x in inner):
+                            return False, f"ZIP contém arquivo perigoso: {info.filename}"
+                    if total > MAX_ZIP_UNCOMPRESSED or (
+                        len(content) and total / len(content) > MAX_ZIP_RATIO
+                    ):
+                        return False, "Possível zip bomb"
+            except zipfile.BadZipFile:
+                return False, "ZIP corrompido"
         return True, ""
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
@@ -114,6 +172,7 @@ class AttachmentHandler:
             Lista de dicts com filename, file_path, file_size, file_type, ocr_text, pdf_text
         """
         saved = []
+        self.blocked = []
         dest_dir = self._build_path(email_data)
 
         for att in attachments:
@@ -134,8 +193,11 @@ class AttachmentHandler:
                 continue
 
             allowed, reason = self._is_extension_allowed(original_name)
+            if allowed:
+                allowed, reason = self._check_content(original_name, content)
             if not allowed:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
+                self.blocked.append({"filename": original_name, "reason": reason})
                 continue
 
             safe_name = self._sanitize_filename(original_name)
@@ -152,8 +214,16 @@ class AttachmentHandler:
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
-            elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
+            elif ext in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp"}:
                 ocr_text = self._ocr_image(file_path)
+
+            doc_text = pdf_text or ocr_text
+            if doc_text and self._classifier and FINANCIAL_HINTS.search(doc_text):
+                invoice_data = self._classifier.extract_invoice_data(doc_text)
+            if pdf_text and self._classifier:
+                pdf_summary = self._classifier.summarize_pdf(pdf_text)
+                if pdf_summary:
+                    invoice_data = {**invoice_data, "resumo_documento": pdf_summary}
 
             logger.info(
                 "attachment_saved",

@@ -49,7 +49,8 @@ async def _check_new_emails_async() -> Dict[str, Any]:
     from app.services.whatsapp_sender import WhatsAppSender
     from app.services.attachment_handler import AttachmentHandler
     from app.services.log_service import LogService
-    from sqlalchemy import select
+    from app.services import sender_rules
+    from sqlalchemy import func, select
 
     cycle_start = time.monotonic()
     stats = {
@@ -63,157 +64,177 @@ async def _check_new_emails_async() -> Dict[str, Any]:
     reader = OutlookEmailReader()
     classifier = AIClassifier()
     whatsapp = WhatsAppSender()
-    att_handler = AttachmentHandler()
+    att_handler = AttachmentHandler(classifier=classifier)
 
     try:
         raw_emails = await reader.get_new_emails(max_emails=settings.MAX_EMAILS_PER_BATCH)
     except Exception as e:
         logger.error("email_fetch_failed", error=str(e))
+        async with AsyncSessionLocal() as db:
+            await LogService(db).log_error("email_fetch", type(e).__name__, str(e), {})
+            await db.commit()
         await reader.close()
         await whatsapp.close()
         return {"error": str(e), **stats}
+
+    priority_map = {
+        "CRITICO": PriorityLevel.CRITICAL,
+        "ALTO": PriorityLevel.HIGH,
+        "MEDIO": PriorityLevel.MEDIUM,
+        "BAIXO": PriorityLevel.LOW,
+    }
+    to_mark_read: list = []
 
     async with AsyncSessionLocal() as db:
         log_svc = LogService(db)
 
         for raw in raw_emails:
             email_start = time.monotonic()
+            parsed = reader.parse_email(raw)
+            message_id = parsed["message_id"]
             try:
-                parsed = reader.parse_email(raw)
-                message_id = parsed["message_id"]
-
-                # Verificar duplicata
                 existing = await db.execute(
-                    select(EmailRecord).where(EmailRecord.message_id == message_id)
+                    select(EmailRecord.id).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    to_mark_read.append(message_id)
                     continue
 
-                # Classificar com IA
-                ai_result = classifier.classify_email(parsed)
-
-                # Marcar como lido no Outlook
-                try:
-                    await reader.mark_as_read(message_id)
-                except Exception:
-                    pass
-
-                if ai_result.get("is_spam"):
-                    await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
+                if sender_rules.is_blocked(parsed["sender_email"]):
+                    await log_svc.log_email_ignored(message_id, parsed["sender_email"], "remetente bloqueado")
                     stats["emails_ignored"] += 1
+                    to_mark_read.append(message_id)
                     continue
 
-                # Processar anexos
-                attachments_data = []
-                if parsed.get("has_attachments"):
-                    try:
-                        raw_attachments = await reader.get_attachments(message_id)
-                        attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
-                    except Exception as e:
-                        logger.warning("attachment_processing_failed", error=str(e))
+                # Savepoint: falha em um e-mail não derruba o lote inteiro
+                async with db.begin_nested():
+                    ai_result = await asyncio.to_thread(classifier.classify_email, parsed)
 
-                # Mapeamento de prioridade
-                priority_map = {
-                    "CRITICO": PriorityLevel.CRITICAL,
-                    "ALTO": PriorityLevel.HIGH,
-                    "MEDIO": PriorityLevel.MEDIUM,
-                    "BAIXO": PriorityLevel.LOW,
-                }
-                priority = priority_map.get(ai_result.get("priority", "BAIXO"), PriorityLevel.LOW)
+                    since = datetime.now(timezone.utc) - timedelta(hours=24)
+                    recent = (await db.execute(
+                        select(func.count(EmailRecord.id)).where(
+                            EmailRecord.sender_email == parsed["sender_email"],
+                            EmailRecord.received_at >= since,
+                        )
+                    )).scalar() or 0
+                    ai_result = sender_rules.apply_rules(parsed, ai_result, recent)
 
-                duration_ms = (time.monotonic() - email_start) * 1000
+                    if ai_result.get("is_spam"):
+                        await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam/newsletter")
+                        stats["emails_ignored"] += 1
+                        to_mark_read.append(message_id)
+                        continue
 
-                # Salvar e-mail no banco
-                email_record = EmailRecord(
-                    message_id=message_id,
-                    subject=parsed["subject"],
-                    sender_email=parsed["sender_email"],
-                    sender_name=parsed["sender_name"],
-                    recipients=parsed["recipients"],
-                    body_preview=parsed["body_preview"],
-                    full_body=parsed.get("full_body", ""),
-                    received_at=parsed["received_at"],
-                    processed_at=datetime.now(timezone.utc),
-                    priority=priority,
-                    category=ai_result.get("category", "Geral"),
-                    ai_summary=ai_result.get("summary", ""),
-                    keywords_found=ai_result.get("keywords_found", []),
-                    action_required=ai_result.get("action_required", False),
-                    is_spam=False,
-                    has_attachments=bool(attachments_data),
-                    attachment_count=len(attachments_data),
-                    processing_time_ms=duration_ms,
-                    raw_data=parsed.get("raw_data", {}),
-                )
-                db.add(email_record)
-                await db.flush()
+                    attachments_data = []
+                    if parsed.get("has_attachments"):
+                        try:
+                            raw_attachments = await reader.get_attachments(message_id)
+                            attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
+                            for blk in att_handler.blocked:
+                                await log_svc.log_error(
+                                    "attachment_blocked", "SecurityBlock", blk["reason"],
+                                    {"message_id": message_id, "filename": blk["filename"]},
+                                )
+                        except Exception as e:
+                            logger.warning("attachment_processing_failed", error=str(e))
+                            await log_svc.log_error(
+                                "attachment_processing", type(e).__name__, str(e),
+                                {"message_id": message_id},
+                            )
 
-                # Salvar anexos no banco
-                for att in attachments_data:
-                    att_record = EmailAttachment(
-                        email_id=email_record.id,
-                        filename=att["filename"],
-                        original_filename=att["original_filename"],
-                        file_path=att["file_path"],
-                        file_size=att["file_size"],
-                        file_type=att["file_type"],
-                        ocr_text=att.get("ocr_text", ""),
-                        pdf_text=att.get("pdf_text", ""),
-                        invoice_data=att.get("invoice_data", {}),
+                    priority = priority_map.get(ai_result.get("priority", "BAIXO"), PriorityLevel.LOW)
+                    duration_ms = (time.monotonic() - email_start) * 1000
+
+                    email_record = EmailRecord(
+                        message_id=message_id,
+                        subject=parsed["subject"],
+                        sender_email=parsed["sender_email"],
+                        sender_name=parsed["sender_name"],
+                        recipients=parsed["recipients"],
+                        body_preview=parsed["body_preview"],
+                        full_body=parsed.get("full_body", ""),
+                        received_at=parsed["received_at"],
+                        processed_at=datetime.now(timezone.utc),
+                        priority=priority,
+                        category=ai_result.get("category", "Geral"),
+                        ai_summary=ai_result.get("summary", ""),
+                        keywords_found=ai_result.get("keywords_found", []),
+                        action_required=ai_result.get("action_required", False),
+                        is_spam=False,
+                        has_attachments=bool(attachments_data),
+                        attachment_count=len(attachments_data),
+                        processing_time_ms=duration_ms,
+                        raw_data={
+                            **parsed.get("raw_data", {}),
+                            "rule_adjustments": ai_result.get("rule_adjustments", []),
+                        },
                     )
-                    db.add(att_record)
-                    stats["attachments_saved"] += 1
-                    await log_svc.log_attachment_saved(
-                        email_record.id, att["filename"], att["file_path"], att["file_size"]
-                    )
+                    db.add(email_record)
+                    await db.flush()
 
-                # Enviar WhatsApp se for CRÍTICO ou ALTO
-                whatsapp_sent = False
-                if priority in (PriorityLevel.CRITICAL, PriorityLevel.HIGH):
-                    parsed["attachment_count"] = len(attachments_data)
-                    wa_result = await whatsapp.send_email_notification(parsed, ai_result)
-                    whatsapp_sent = wa_result.get("success", False)
+                    for att in attachments_data:
+                        db.add(EmailAttachment(
+                            email_id=email_record.id,
+                            filename=att["filename"],
+                            original_filename=att["original_filename"],
+                            file_path=att["file_path"],
+                            file_size=att["file_size"],
+                            file_type=att["file_type"],
+                            ocr_text=att.get("ocr_text", ""),
+                            pdf_text=att.get("pdf_text", ""),
+                            invoice_data=att.get("invoice_data", {}),
+                        ))
+                        stats["attachments_saved"] += 1
+                        await log_svc.log_attachment_saved(
+                            email_record.id, att["filename"], att["file_path"], att["file_size"]
+                        )
 
-                    notif = NotificationLog(
-                        email_id=email_record.id,
-                        channel=NotificationChannel.WHATSAPP,
-                        recipient=settings.WHATSAPP_TO_NUMBER,
-                        message_body=whatsapp.format_message(parsed, ai_result),
-                        status=NotificationStatus.SENT if whatsapp_sent else NotificationStatus.FAILED,
-                        sent_at=datetime.now(timezone.utc) if whatsapp_sent else None,
-                        error_message=wa_result.get("error", ""),
-                        external_id=wa_result.get("external_id", ""),
-                    )
-                    db.add(notif)
+                    if priority in (PriorityLevel.CRITICAL, PriorityLevel.HIGH):
+                        parsed["attachment_count"] = len(attachments_data)
+                        wa_result = await whatsapp.send_email_notification(parsed, ai_result)
+                        whatsapp_sent = wa_result.get("success", False)
 
-                    if whatsapp_sent:
-                        email_record.whatsapp_sent = True
-                        email_record.whatsapp_sent_at = datetime.now(timezone.utc)
-                        stats["notifications_sent"] += 1
+                        db.add(NotificationLog(
+                            email_id=email_record.id,
+                            channel=NotificationChannel.WHATSAPP,
+                            recipient=settings.WHATSAPP_TO_NUMBER,
+                            message_body=whatsapp.format_message(parsed, ai_result),
+                            status=NotificationStatus.SENT if whatsapp_sent else NotificationStatus.FAILED,
+                            sent_at=datetime.now(timezone.utc) if whatsapp_sent else None,
+                            error_message=wa_result.get("error", ""),
+                            external_id=wa_result.get("external_id", ""),
+                        ))
+                        if whatsapp_sent:
+                            email_record.whatsapp_sent = True
+                            email_record.whatsapp_sent_at = datetime.now(timezone.utc)
+                            stats["notifications_sent"] += 1
 
-                    await log_svc.log_whatsapp_sent(
-                        email_record.id,
-                        settings.WHATSAPP_TO_NUMBER,
+                        await log_svc.log_whatsapp_sent(
+                            email_record.id,
+                            settings.WHATSAPP_TO_NUMBER,
+                            ai_result.get("priority", ""),
+                            whatsapp_sent,
+                            wa_result.get("external_id", ""),
+                            wa_result.get("error", ""),
+                        )
+
+                    await log_svc.log_email_processed(
+                        message_id,
+                        parsed["sender_email"],
+                        parsed["subject"],
                         ai_result.get("priority", ""),
-                        whatsapp_sent,
-                        wa_result.get("external_id", ""),
-                        wa_result.get("error", ""),
+                        duration_ms,
                     )
-
-                await log_svc.log_email_processed(
-                    message_id,
-                    parsed["sender_email"],
-                    parsed["subject"],
-                    ai_result.get("priority", ""),
-                    duration_ms,
-                )
                 stats["emails_processed"] += 1
+                to_mark_read.append(message_id)
 
             except Exception as e:
-                logger.error("email_processing_error", error=str(e))
+                # Não marca como lido: será reprocessado no próximo ciclo
+                logger.error("email_processing_error", message_id=message_id, error=str(e))
                 stats["errors"] += 1
-
-        await db.commit()
+                await log_svc.log_error(
+                    "email_processing", type(e).__name__, str(e), {"message_id": message_id}
+                )
 
         cycle_ms = (time.monotonic() - cycle_start) * 1000
         await log_svc.log_cycle_complete(
@@ -224,6 +245,13 @@ async def _check_new_emails_async() -> Dict[str, Any]:
             cycle_ms,
         )
         await db.commit()
+
+    # Só marca como lido depois do commit no banco (garante at-least-once)
+    for mid in to_mark_read:
+        try:
+            await reader.mark_as_read(mid)
+        except Exception as e:
+            logger.warning("mark_as_read_failed", message_id=mid, error=str(e))
 
     await reader.close()
     await whatsapp.close()
