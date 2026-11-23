@@ -49,6 +49,8 @@ AIClassifier (Claude) ──► Prioridade + Resumo
       └── PostgreSQL ──► Registro completo + Logs
 ```
 
+Documentação detalhada (fluxograma operacional, garantias de robustez, segurança de anexos e modelo de dados): [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+
 ## Pré-requisitos
 
 - Docker e Docker Compose v2+
@@ -82,7 +84,7 @@ docker compose logs -f celery-worker
 3. Nome: `Email Monitor`, tipo: **Contas neste diretório organizacional**
 4. Em **Permissões de API** adicione (tipo **Aplicativo**):
    - `Mail.Read`
-   - `Mail.ReadWrite`
+   - `Mail.ReadWrite` (só necessário com `MARK_AS_READ=true`)
    - `User.Read.All`
 5. **Conceder consentimento do administrador**
 6. Em **Certificados e segredos** crie um novo segredo
@@ -137,6 +139,24 @@ POST /api/emails/{id}/reclassify   # Re-classificar com IA
 GET  /api/dashboard/health         # Status das integrações
 POST /api/settings/trigger-check   # Disparar verificação manual
 POST /api/settings/trigger-summary # Enviar resumo diário
+```
+
+## Testes
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
+A suíte roda sem serviços externos (SQLite + Outlook/Claude/WhatsApp simulados) e cobre um ciclo completo:
+classificação, spam ignorado, anexos salvos, WhatsApp enviado, falha isolada de um e-mail e não-duplicação no ciclo seguinte.
+
+## Migrations
+
+```bash
+docker compose exec backend alembic upgrade head          # aplica o schema
+docker compose exec backend alembic revision --autogenerate -m "minha alteração"
 ```
 
 ## Organização de Anexos

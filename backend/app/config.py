@@ -151,8 +151,24 @@ class Settings(BaseSettings):
         description="Número máximo de e-mails processados por ciclo",
     )
     ATTACHMENTS_BASE_PATH: str = Field(
-        default="/app/attachments",
-        description="Caminho base para salvar anexos",
+        default="/app/attachments/Emails_Importantes",
+        description="Caminho base para salvar anexos (/Emails_Importantes/AAAA/MM/DD/Remetente/)",
+    )
+    TIMEZONE: str = Field(
+        default="America/Sao_Paulo",
+        description="Fuso horário usado nas mensagens WhatsApp e nas pastas de anexos",
+    )
+    EMAIL_LOOKBACK_MINUTES: int = Field(
+        default=60,
+        description="Janela (min) de e-mails recebidos a reavaliar a cada ciclo; duplicados são ignorados",
+    )
+    MARK_AS_READ: bool = Field(
+        default=False,
+        description="Se True, marca o e-mail como lido no Outlook após processar",
+    )
+    CYCLE_LOCK_TTL_SECONDS: int = Field(
+        default=300,
+        description="TTL do lock Redis que impede ciclos de verificação simultâneos",
     )
     MAX_ATTACHMENT_SIZE_MB: int = Field(
         default=25,
@@ -195,7 +211,6 @@ class Settings(BaseSettings):
         "SOS",
         "imediato",
         "imediatamente",
-        "agora",
         "hoje impreterivelmente",
         "prazo vencendo",
         "vencimento hoje",

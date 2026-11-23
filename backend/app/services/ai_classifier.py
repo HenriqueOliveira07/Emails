@@ -2,12 +2,14 @@
 Classificação inteligente de e-mails usando Claude API.
 """
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 import anthropic
 import structlog
 
 from app.config import settings
+from app.utils.timeutils import to_local
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +72,11 @@ Analise o e-mail fornecido e classifique seguindo estritamente as regras acima.
 Responda sempre em português."""
 
 
+def _contains_word(text: str, keyword: str) -> bool:
+    """Busca por palavra inteira (evita 'agora' casar com 'agoraphobia', 'cliente' em 'clientela' etc.)."""
+    return re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", text) is not None
+
+
 class AIClassifier:
     """Classifica e-mails usando Claude API com structured output via tool_use."""
 
@@ -86,14 +93,24 @@ class AIClassifier:
         subject = email_data.get("subject", "(Sem assunto)")
         sender = email_data.get("sender_email", "")
         sender_name = email_data.get("sender_name", "")
-        body = email_data.get("body_preview", "") or email_data.get("full_body", "")
-        body_trimmed = body[:3000] if body else ""
+        # bodyPreview da Graph API tem só ~255 caracteres: preferir o corpo completo em texto
+        body = (
+            email_data.get("body_text")
+            or email_data.get("body_preview", "")
+            or email_data.get("full_body", "")
+        )
+        body_trimmed = body[:6000] if body else ""
+        recipients = ", ".join(email_data.get("recipients", [])[:10])
+        received_at = email_data.get("received_at")
+        horario = to_local(received_at).strftime("%d/%m/%Y %H:%M (%A)") if received_at else "?"
         has_attachments = email_data.get("has_attachments", False)
         importance = email_data.get("importance", "normal")
 
         user_message = f"""E-mail para classificar:
 
 Remetente: {sender_name} <{sender}>
+Destinatários: {recipients}
+Recebido em: {horario}
 Assunto: {subject}
 Importância (sistema): {importance}
 Possui anexos: {"Sim" if has_attachments else "Não"}
@@ -125,19 +142,25 @@ Classifique este e-mail."""
                     )
                     return result
 
-        except anthropic.APIError as e:
-            logger.error("claude_api_error", error=str(e))
+        except Exception as e:  # APIError, timeout, erro de conexão: cai no fallback
+            logger.error("claude_api_error", error=str(e), error_type=type(e).__name__)
 
-        return self._fallback_classification(email_data)
+        result = self._fallback_classification(email_data)
+        result["classified_by"] = "fallback_keywords"
+        return result
 
     def _fallback_classification(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
         """Classificação por palavras-chave caso a API falhe."""
         text = (
-            (email_data.get("subject", "") + " " + email_data.get("body_preview", "")).lower()
-        )
+            email_data.get("subject", "")
+            + " "
+            + (email_data.get("body_text") or email_data.get("body_preview", ""))
+            + " "
+            + email_data.get("sender_email", "")
+        ).lower()
 
         spam_kws = [kw.lower() for kw in settings.SPAM_KEYWORDS]
-        if any(kw in text for kw in spam_kws):
+        if any(_contains_word(text, kw) for kw in spam_kws):
             return {
                 "priority": "BAIXO",
                 "category": "Spam/Newsletter",
@@ -152,9 +175,9 @@ Classifique este e-mail."""
         high_kws = [kw.lower() for kw in settings.PRIORITY_HIGH_KEYWORDS]
         medium_kws = [kw.lower() for kw in settings.PRIORITY_MEDIUM_KEYWORDS]
 
-        found_critical = [kw for kw in critical_kws if kw in text]
-        found_high = [kw for kw in high_kws if kw in text]
-        found_medium = [kw for kw in medium_kws if kw in text]
+        found_critical = sorted({kw for kw in critical_kws if _contains_word(text, kw)})
+        found_high = sorted({kw for kw in high_kws if _contains_word(text, kw)})
+        found_medium = sorted({kw for kw in medium_kws if _contains_word(text, kw)})
 
         if found_critical:
             priority = "CRITICO"

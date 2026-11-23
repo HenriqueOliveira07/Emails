@@ -2,7 +2,7 @@
 Leitura de e-mails via Microsoft Graph API com autenticação MSAL.
 """
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -10,6 +10,7 @@ import msal
 import structlog
 
 from app.config import settings
+from app.utils.sanitizer import html_to_text
 
 logger = structlog.get_logger(__name__)
 
@@ -41,9 +42,7 @@ class MSALAuthenticator:
 
         self._token = result["access_token"]
         expires_in = result.get("expires_in", 3600)
-        self._token_expiry = datetime.now(timezone.utc).replace(
-            second=datetime.now(timezone.utc).second + expires_in
-        )
+        self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
         logger.info("msal_token_acquired", expires_in=expires_in)
         return self._token
 
@@ -90,22 +89,34 @@ class OutlookEmailReader:
                     raise
                 await asyncio.sleep(2 ** attempt)
 
-    async def get_new_emails(self, max_emails: int = 25) -> List[Dict[str, Any]]:
-        """Busca e-mails não lidos da caixa de entrada."""
+    async def get_new_emails(
+        self, max_emails: int = 25, since: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Busca e-mails recebidos na caixa de entrada desde `since`.
+
+        Não depende de isRead: o usuário pode abrir o e-mail no Outlook antes do
+        ciclo rodar sem que ele seja perdido. A deduplicação é feita pelo
+        message_id no banco. Filtro e ordenação usam a mesma propriedade
+        (receivedDateTime), exigência da Graph API para evitar InefficientFilter.
+        """
         user = settings.OUTLOOK_EMAIL_ADDRESS
+        if since is None:
+            since = datetime.now(timezone.utc) - timedelta(minutes=settings.EMAIL_LOOKBACK_MINUTES)
+        since_str = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         url = f"{GRAPH_BASE}/users/{user}/mailFolders/inbox/messages"
         params = {
-            "$filter": "isRead eq false",
-            "$orderby": "receivedDateTime desc",
+            "$filter": f"receivedDateTime ge {since_str}",
+            "$orderby": "receivedDateTime asc",
             "$top": max_emails,
             "$select": (
-                "id,subject,from,toRecipients,ccRecipients,body,bodyPreview,"
-                "receivedDateTime,hasAttachments,importance,conversationId"
+                "id,internetMessageId,subject,from,toRecipients,ccRecipients,body,bodyPreview,"
+                "receivedDateTime,hasAttachments,importance,conversationId,isRead"
             ),
         }
         data = await self._get(url, params=params)
         messages = data.get("value", [])
-        logger.info("emails_fetched", count=len(messages))
+        logger.info("emails_fetched", count=len(messages), since=since_str)
         return messages
 
     async def get_attachments(self, message_id: str) -> List[Dict[str, Any]]:
@@ -126,7 +137,7 @@ class OutlookEmailReader:
         sender = raw.get("from", {}).get("emailAddress", {})
         recipients = [
             r["emailAddress"]["address"]
-            for r in raw.get("toRecipients", [])
+            for r in raw.get("toRecipients", []) + raw.get("ccRecipients", [])
             if "emailAddress" in r
         ]
         body_content = raw.get("body", {}).get("content", "")
@@ -146,6 +157,7 @@ class OutlookEmailReader:
             "recipients": recipients,
             "body_preview": raw.get("bodyPreview", "")[:2000],
             "full_body": body_content,
+            "body_text": html_to_text(body_content) if body_type.lower() == "html" else body_content,
             "body_type": body_type,
             "received_at": received_at,
             "has_attachments": raw.get("hasAttachments", False),

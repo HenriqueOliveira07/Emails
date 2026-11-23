@@ -9,8 +9,12 @@ import httpx
 import structlog
 
 from app.config import settings
+from app.utils.timeutils import to_local
 
 logger = structlog.get_logger(__name__)
+
+# Rótulos exibidos no cabeçalho da mensagem (formato definido pelo usuário: "[CRÍTICO]")
+PRIORITY_DISPLAY = {"CRITICO": "CRÍTICO", "ALTO": "ALTO", "MEDIO": "MÉDIO", "BAIXO": "BAIXO"}
 
 PRIORITY_LABELS = {
     "CRITICO": "🔴 CRÍTICO",
@@ -37,13 +41,12 @@ class WhatsAppSender:
         remetente = f"{sender_name} <{sender_email}>" if sender_name else sender_email
 
         received_at: Optional[datetime] = email_data.get("received_at")
-        if isinstance(received_at, datetime):
-            horario = received_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
-        else:
-            horario = datetime.now().strftime("%d/%m/%Y %H:%M")
+        horario = to_local(received_at if isinstance(received_at, datetime) else None).strftime(
+            "%d/%m/%Y %H:%M"
+        )
 
         subject = email_data.get("subject", "(Sem assunto)")
-        summary = ai_result.get("summary", email_data.get("body_preview", ""))[:400]
+        summary = (ai_result.get("summary") or email_data.get("body_preview", ""))[:400]
         has_attachments = email_data.get("has_attachments", False)
         attachment_count = email_data.get("attachment_count", 0)
         action_required = ai_result.get("action_required", False)
@@ -51,7 +54,7 @@ class WhatsAppSender:
         category = ai_result.get("category", "Geral")
 
         lines = [
-            f"[{priority_raw}]",
+            f"[{PRIORITY_DISPLAY.get(priority_raw, priority_raw)}]",
             "Novo e-mail importante recebido",
             "",
             f"Remetente: {remetente}",
@@ -67,7 +70,12 @@ class WhatsAppSender:
             lines += ["", f"Ação necessária: {action_desc}"]
 
         if has_attachments:
-            count_str = f"{attachment_count} arquivo(s)" if attachment_count else "arquivos"
+            if attachment_count == 1:
+                count_str = "1 arquivo"
+            elif attachment_count:
+                count_str = f"{attachment_count} arquivos"
+            else:
+                count_str = "sim"
             lines += ["", f"Anexos: {count_str}"]
 
         return "\n".join(lines)
@@ -81,7 +89,7 @@ class WhatsAppSender:
 
     async def send_daily_summary(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """Envia resumo diário via WhatsApp."""
-        today = datetime.now().strftime("%d/%m/%Y")
+        today = to_local(None).strftime("%d/%m/%Y")
         message = (
             f"RESUMO DIÁRIO — {today}\n\n"
             f"E-mails processados: {stats.get('total', 0)}\n"

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.models.email import EmailAttachment, EmailRecord, PriorityLevel
 from app.models.notification import NotificationLog, NotificationStatus, ProcessingLog
+from app.utils.timeutils import local_day_start
 
 router = APIRouter()
 
@@ -18,7 +19,7 @@ router = APIRouter()
 @router.get("/stats")
 async def get_stats(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Estatísticas do dia atual."""
-    today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
+    today_start = local_day_start()
 
     total = (await db.execute(
         select(func.count(EmailRecord.id)).where(EmailRecord.processed_at >= today_start)

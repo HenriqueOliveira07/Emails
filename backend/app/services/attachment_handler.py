@@ -15,18 +15,38 @@ import aiofiles
 import structlog
 
 from app.config import settings
+from app.utils.timeutils import to_local
 
 logger = structlog.get_logger(__name__)
 
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xls", ".docx", ".doc",
-    ".csv", ".zip", ".jpg", ".jpeg", ".png",
-    ".gif", ".xml", ".txt",
+    ".csv", ".zip", ".xml", ".txt",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".heic",
 }
 
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp"}
+
 DANGEROUS_EXTENSIONS = {
-    ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs",
-    ".js", ".jar", ".msi", ".scr", ".pif", ".com",
+    ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs", ".vbe", ".wsf", ".wsh",
+    ".js", ".jse", ".jar", ".msi", ".msp", ".scr", ".pif", ".com", ".cpl",
+    ".hta", ".lnk", ".iso", ".img", ".dll", ".reg", ".appx", ".msix",
+    ".docm", ".xlsm", ".pptm", ".dotm", ".xltm",
+}
+
+# Assinaturas de executáveis: um "fatura.pdf" que começa com MZ é um .exe disfarçado
+EXECUTABLE_MAGIC = (b"MZ", b"\x7fELF", b"#!", b"\xca\xfe\xba\xbe")
+
+# Assinaturas esperadas por extensão (verificação de conteúdo x extensão)
+EXPECTED_MAGIC = {
+    ".pdf": (b"%PDF",),
+    ".png": (b"\x89PNG",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif": (b"GIF8",),
+    ".zip": (b"PK",),
+    ".xlsx": (b"PK",),
+    ".docx": (b"PK",),
 }
 
 
@@ -37,10 +57,11 @@ class AttachmentHandler:
         self._base = Path(base_path or settings.ATTACHMENTS_BASE_PATH)
         self._base.mkdir(parents=True, exist_ok=True)
         self._max_size_bytes = settings.MAX_ATTACHMENT_SIZE_MB * 1024 * 1024
+        self.blocked: List[Dict[str, str]] = []
 
     def _build_path(self, email_data: Dict[str, Any]) -> Path:
         """Constrói o caminho de destino: /base/YYYY/MM/DD/Remetente/"""
-        received_at: datetime = email_data.get("received_at") or datetime.now(timezone.utc)
+        received_at: datetime = to_local(email_data.get("received_at"))
         sender_email: str = email_data.get("sender_email", "desconhecido")
         sender_name: str = email_data.get("sender_name", "")
 
@@ -88,10 +109,44 @@ class AttachmentHandler:
         return new_name
 
     def _is_extension_allowed(self, filename: str) -> Tuple[bool, str]:
-        """Verifica se a extensão é permitida e não é perigosa."""
+        """Verifica se a extensão é permitida (whitelist) e não é perigosa."""
         ext = Path(filename).suffix.lower()
         if ext in DANGEROUS_EXTENSIONS:
             return False, f"Extensão perigosa: {ext}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Extensão não permitida: {ext or '(sem extensão)'}"
+        return True, ""
+
+    @staticmethod
+    def _inspect_content(filename: str, content: bytes) -> Tuple[bool, str]:
+        """
+        Controle de anexos maliciosos baseado no conteúdo:
+        - executável disfarçado (assinatura MZ/ELF com extensão inocente)
+        - extensão que não corresponde ao conteúdo (ex.: .pdf que não é PDF)
+        - ZIP contendo executáveis ou arquivos com macro
+        """
+        ext = Path(filename).suffix.lower()
+        head = content[:8]
+        if any(head.startswith(sig) for sig in EXECUTABLE_MAGIC):
+            return False, "Conteúdo executável disfarçado"
+        expected = EXPECTED_MAGIC.get(ext)
+        if expected and not any(head.startswith(sig) for sig in expected):
+            return False, f"Conteúdo não corresponde à extensão {ext}"
+        if ext == ".zip":
+            import io
+            import zipfile
+
+            try:
+                with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                    for name in zf.namelist():
+                        inner_ext = Path(name).suffix.lower()
+                        if inner_ext in DANGEROUS_EXTENSIONS:
+                            return False, f"ZIP contém arquivo perigoso: {name}"
+            except zipfile.BadZipFile:
+                return False, "ZIP corrompido"
+            except RuntimeError:
+                # ZIP com senha: não dá para inspecionar, técnica comum de malware
+                return False, "ZIP protegido por senha"
         return True, ""
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
@@ -114,9 +169,12 @@ class AttachmentHandler:
             Lista de dicts com filename, file_path, file_size, file_type, ocr_text, pdf_text
         """
         saved = []
-        dest_dir = self._build_path(email_data)
+        dest_dir: Optional[Path] = None
 
         for att in attachments:
+            # Itens de calendário/e-mails anexados (itemAttachment) não têm contentBytes
+            if att.get("@odata.type", "").endswith("itemAttachment") or att.get("isInline"):
+                continue
             original_name = att.get("name", "arquivo_sem_nome")
             mime_type = att.get("contentType", "") or mimetypes.guess_type(original_name)[0] or ""
             content = self._get_content_bytes(att)
@@ -134,10 +192,15 @@ class AttachmentHandler:
                 continue
 
             allowed, reason = self._is_extension_allowed(original_name)
+            if allowed:
+                allowed, reason = self._inspect_content(original_name, content)
             if not allowed:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
+                self.blocked.append({"filename": original_name, "reason": reason})
                 continue
 
+            if dest_dir is None:
+                dest_dir = self._build_path(email_data)
             safe_name = self._sanitize_filename(original_name)
             unique_name = self._unique_filename(dest_dir, safe_name)
             file_path = dest_dir / unique_name
@@ -152,7 +215,7 @@ class AttachmentHandler:
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
-            elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
+            elif ext in IMAGE_EXTENSIONS:
                 ocr_text = self._ocr_image(file_path)
 
             logger.info(
