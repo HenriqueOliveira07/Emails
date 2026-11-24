@@ -184,6 +184,19 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Migrações e Testes
+
+```bash
+# Aplicar migrações do banco (Alembic)
+docker compose exec backend alembic upgrade head
+
+# Criar nova migração após alterar modelos
+docker compose exec backend alembic revision --autogenerate -m "descricao"
+
+# Rodar testes (anexos, classificação por palavras-chave, utilitários)
+cd backend && pip install -r requirements.txt && pytest -q
+```
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
@@ -212,7 +225,7 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 | Categoria | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 |
-| IA | Claude (Anthropic) claude-sonnet-4-6 |
+| IA | Claude (Anthropic) claude-sonnet-5-5 |
 | Fila | Celery 5, Redis 7 |
 | Banco | PostgreSQL 16 |
 | Frontend | Next.js 14, TailwindCSS, Recharts |
