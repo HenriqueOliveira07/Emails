@@ -224,3 +224,13 @@ WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
 ---
 
 Desenvolvido para ambiente corporativo — escalável, seguro e pronto para produção.
+
+## Testes e Migrações
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest -q                                   # testes unitários (classificação, anexos, sanitização)
+alembic revision --autogenerate -m "inicial" # gera migração a partir dos modelos
+alembic upgrade head
+```

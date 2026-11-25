@@ -134,6 +134,9 @@ class AttachmentHandler:
                 continue
 
             allowed, reason = self._is_extension_allowed(original_name)
+            if allowed and content[:2] == b"MZ":
+                # Executável Windows (PE) disfarçado com extensão inofensiva
+                allowed, reason = False, "Conteúdo executável (assinatura MZ)"
             if not allowed:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
                 continue
