@@ -184,6 +184,17 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Testes e Migrações
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest -q                 # testes unitários (classificação, anexos, WhatsApp)
+alembic upgrade head      # aplica o schema no PostgreSQL
+```
+
+Arquitetura detalhada e fluxograma operacional (Mermaid): [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)

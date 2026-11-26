@@ -21,8 +21,16 @@ logger = structlog.get_logger(__name__)
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xls", ".docx", ".doc",
     ".csv", ".zip", ".jpg", ".jpeg", ".png",
-    ".gif", ".xml", ".txt",
+    ".gif", ".xml", ".txt", ".webp", ".bmp", ".tif", ".tiff",
 }
+
+# Assinaturas binárias de executáveis (detecção de arquivos disfarçados)
+EXECUTABLE_SIGNATURES = (
+    b"MZ",          # Windows PE (.exe/.dll)
+    b"\x7fELF",     # Linux ELF
+    b"#!",          # scripts com shebang
+    b"\xcf\xfa\xed\xfe",  # Mach-O
+)
 
 DANGEROUS_EXTENSIONS = {
     ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs",
@@ -92,7 +100,14 @@ class AttachmentHandler:
         ext = Path(filename).suffix.lower()
         if ext in DANGEROUS_EXTENSIONS:
             return False, f"Extensão perigosa: {ext}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Extensão não permitida: {ext or '(sem extensão)'}"
         return True, ""
+
+    @staticmethod
+    def _looks_executable(content: bytes) -> bool:
+        """Detecta executáveis disfarçados com extensão inofensiva."""
+        return any(content.startswith(sig) for sig in EXECUTABLE_SIGNATURES)
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
         """Extrai o conteúdo binário de um anexo da Graph API."""
@@ -136,6 +151,14 @@ class AttachmentHandler:
             allowed, reason = self._is_extension_allowed(original_name)
             if not allowed:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
+                continue
+
+            if self._looks_executable(content):
+                logger.warning(
+                    "attachment_blocked",
+                    filename=original_name,
+                    reason="Conteúdo executável disfarçado",
+                )
                 continue
 
             safe_name = self._sanitize_filename(original_name)
