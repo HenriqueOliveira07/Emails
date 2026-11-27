@@ -184,11 +184,38 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Filtros por Remetente
+
+Configure no `.env` (formato JSON; aceita e-mail, domínio ou `@domínio`):
+
+```
+VIP_SENDERS=["ceo@empresa.com","@bancoparceiro.com.br"]   # nunca spam, +1 nível de prioridade
+BLOCKED_SENDERS=["@marketing.exemplo.com"]                # ignorado sem chamar a IA
+```
+
+## Testes
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Os testes usam SQLite e integrações simuladas (Outlook, Claude, WhatsApp) e cobrem o ciclo
+completo: classificação, spam, filtros VIP/bloqueio, anexos (caminho, deduplicação, bloqueio
+de executáveis e ZIP malicioso), formato da mensagem WhatsApp, savepoint por e-mail e
+deduplicação entre ciclos. Rodam automaticamente no GitHub Actions (`.github/workflows/tests.yml`).
+
+## Arquitetura detalhada
+
+Diagramas de componentes, fluxograma operacional, modelo de dados, controles de segurança e
+limitações conhecidas: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+
 ## Segurança e LGPD
 
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
-- Tokens JWT com expiração configurável
-- Validação de tipos de arquivo (bloqueio de executáveis)
+- Anexos: allowlist de tipos, bloqueio de dupla extensão/macros, detecção de executável disfarçado e inspeção de ZIP
+- ⚠️ A API/painel ainda não tem login — exponha apenas em rede interna (ver `docs/ARQUITETURA.md`)
 - Logs de auditoria completos com retenção configurável
 - Sem armazenamento de senhas em texto plano
 - Conexões PostgreSQL com pool e timeout

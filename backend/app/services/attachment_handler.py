@@ -18,16 +18,23 @@ from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
+ROOT_FOLDER = "Emails_Importantes"
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp"}
+
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xls", ".docx", ".doc",
-    ".csv", ".zip", ".jpg", ".jpeg", ".png",
-    ".gif", ".xml", ".txt",
-}
+    ".csv", ".zip", ".xml", ".txt",
+} | IMAGE_EXTENSIONS
 
 DANGEROUS_EXTENSIONS = {
-    ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs",
-    ".js", ".jar", ".msi", ".scr", ".pif", ".com",
+    ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs", ".vbe", ".wsf", ".hta",
+    ".js", ".jse", ".jar", ".msi", ".scr", ".pif", ".com", ".dll", ".lnk",
+    ".iso", ".img", ".docm", ".xlsm", ".pptm",
 }
+
+# Assinaturas de executáveis (PE/Windows, ELF/Linux, Mach-O)
+EXECUTABLE_MAGIC = (b"MZ", b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xce")
 
 
 class AttachmentHandler:
@@ -49,6 +56,7 @@ class AttachmentHandler:
 
         path = (
             self._base
+            / ROOT_FOLDER
             / str(received_at.year)
             / f"{received_at.month:02d}"
             / f"{received_at.day:02d}"
@@ -79,7 +87,7 @@ class AttachmentHandler:
 
         stem = Path(filename).stem
         suffix = Path(filename).suffix
-        short_hash = hashlib.md5(filename.encode()).hexdigest()[:6]
+        short_hash = hashlib.sha256(filename.encode()).hexdigest()[:6]
         new_name = f"{stem}_{short_hash}{suffix}"
         counter = 1
         while (directory / new_name).exists():
@@ -88,10 +96,41 @@ class AttachmentHandler:
         return new_name
 
     def _is_extension_allowed(self, filename: str) -> Tuple[bool, str]:
-        """Verifica se a extensão é permitida e não é perigosa."""
-        ext = Path(filename).suffix.lower()
-        if ext in DANGEROUS_EXTENSIONS:
-            return False, f"Extensão perigosa: {ext}"
+        """Verifica se a extensão é permitida (allowlist) e não é perigosa."""
+        name = filename.lower()
+        ext = Path(name).suffix
+        # Dupla extensão disfarçada: "fatura.pdf.exe" ou "nota.exe.pdf"
+        for part in Path(name).suffixes:
+            if part in DANGEROUS_EXTENSIONS:
+                return False, f"Extensão perigosa: {part}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Tipo não permitido: {ext or '(sem extensão)'}"
+        return True, ""
+
+    @staticmethod
+    def _scan_content(filename: str, content: bytes) -> Tuple[bool, str]:
+        """Inspeção leve de conteúdo malicioso (não substitui um antivírus)."""
+        if content[:4].startswith(EXECUTABLE_MAGIC):
+            return False, "Conteúdo executável disfarçado"
+        if Path(filename).suffix.lower() == ".zip":
+            import io
+            import zipfile
+
+            try:
+                with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                    total = 0
+                    for info in zf.infolist():
+                        inner = info.filename.lower()
+                        if any(sfx in DANGEROUS_EXTENSIONS for sfx in Path(inner).suffixes):
+                            return False, f"ZIP contém arquivo perigoso: {info.filename}"
+                        if inner.startswith("/") or ".." in Path(inner).parts:
+                            return False, "ZIP com caminho inválido (path traversal)"
+                        total += info.file_size
+                    # Proteção contra zip bomb (> 100x o tamanho máximo permitido)
+                    if total > settings.MAX_ATTACHMENT_SIZE_MB * 1024 * 1024 * 100:
+                        return False, "ZIP com descompactação excessiva (zip bomb)"
+            except zipfile.BadZipFile:
+                return False, "ZIP corrompido"
         return True, ""
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
@@ -138,6 +177,11 @@ class AttachmentHandler:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
                 continue
 
+            clean, scan_reason = self._scan_content(original_name, content)
+            if not clean:
+                logger.warning("attachment_malicious", filename=original_name, reason=scan_reason)
+                continue
+
             safe_name = self._sanitize_filename(original_name)
             unique_name = self._unique_filename(dest_dir, safe_name)
             file_path = dest_dir / unique_name
@@ -152,7 +196,10 @@ class AttachmentHandler:
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
-            elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
+            elif ext == ".xml":
+                # NF-e e afins: texto bruto para extração de dados financeiros
+                pdf_text = content.decode("utf-8", errors="ignore")[:8000]
+            elif ext in IMAGE_EXTENSIONS:
                 ocr_text = self._ocr_image(file_path)
 
             logger.info(

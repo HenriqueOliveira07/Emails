@@ -23,6 +23,65 @@ def run_async(coro):
         loop.close()
 
 
+async def _safe_mark_as_read(reader, message_id: str) -> None:
+    try:
+        await reader.mark_as_read(message_id)
+    except Exception as e:  # não fatal: a deduplicação por message_id evita reprocessar
+        logger.warning("mark_as_read_failed", message_id=message_id, error=str(e))
+
+
+_FINANCIAL_HINTS = ("boleto", "nota fiscal", "nf-e", "danfe", "vencimento", "cnpj", "linha digitável")
+
+
+async def _enrich_attachments(classifier, attachments_data) -> None:
+    """Resumo IA de PDFs/imagens (OCR) e extração de dados de boletos/NF."""
+    for att in attachments_data:
+        text = att.get("pdf_text") or att.get("ocr_text") or ""
+        if len(text) < 50:
+            continue
+        try:
+            att["ai_summary"] = await asyncio.to_thread(classifier.summarize_pdf, text)
+            lowered = text.lower()
+            if any(h in lowered for h in _FINANCIAL_HINTS) or att["original_filename"].lower().endswith(".xml"):
+                att["invoice_data"] = await asyncio.to_thread(classifier.extract_invoice_data, text)
+        except Exception as e:
+            logger.warning("attachment_ai_failed", filename=att.get("filename"), error=str(e))
+
+
+def classify_sender(sender_email: str) -> str:
+    """Retorna 'block', 'vip' ou '' conforme os filtros de remetente configurados."""
+    from app.config import settings
+
+    addr = (sender_email or "").lower()
+    domain = addr.split("@")[-1] if "@" in addr else ""
+
+    def matches(rules) -> bool:
+        for rule in rules:
+            r = rule.strip().lower()
+            if not r:
+                continue
+            if r == addr or (r.startswith("@") and domain == r[1:]) or r == domain:
+                return True
+        return False
+
+    if matches(settings.BLOCKED_SENDERS):
+        return "block"
+    if matches(settings.VIP_SENDERS):
+        return "vip"
+    return ""
+
+
+_BOOST = {"BAIXO": "MEDIO", "MEDIO": "ALTO", "ALTO": "ALTO", "CRITICO": "CRITICO"}
+
+
+def apply_vip_boost(ai_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Remetentes VIP nunca são spam e sobem um nível de prioridade (até ALTO)."""
+    result = dict(ai_result)
+    result["is_spam"] = False
+    result["priority"] = _BOOST.get(result.get("priority", "BAIXO"), "MEDIO")
+    return result
+
+
 @celery_app.task(
     bind=True,
     name="app.workers.tasks.check_new_emails",
@@ -41,7 +100,7 @@ def check_new_emails(self) -> Dict[str, Any]:
 
 async def _check_new_emails_async() -> Dict[str, Any]:
     from app.config import settings
-    from app.db.database import AsyncSessionLocal
+    from app.db.database import worker_session
     from app.models.email import EmailRecord, EmailAttachment, PriorityLevel
     from app.models.notification import NotificationLog, NotificationChannel, NotificationStatus
     from app.services.email_reader import OutlookEmailReader
@@ -71,13 +130,24 @@ async def _check_new_emails_async() -> Dict[str, Any]:
         logger.error("email_fetch_failed", error=str(e))
         await reader.close()
         await whatsapp.close()
+        try:
+            async with worker_session() as db:
+                await LogService(db).log_error(
+                    "integration_error", type(e).__name__, str(e), {"integration": "outlook"}
+                )
+                await db.commit()
+        except Exception:
+            pass
         return {"error": str(e), **stats}
 
-    async with AsyncSessionLocal() as db:
+    async with worker_session() as db:
         log_svc = LogService(db)
 
         for raw in raw_emails:
             email_start = time.monotonic()
+            message_id = raw.get("id", "")
+            # Savepoint por e-mail: uma falha não desfaz o lote inteiro
+            savepoint = await db.begin_nested()
             try:
                 parsed = reader.parse_email(raw)
                 message_id = parsed["message_id"]
@@ -87,19 +157,28 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     select(EmailRecord).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    await savepoint.commit()
+                    await _safe_mark_as_read(reader, message_id)
                     continue
 
-                # Classificar com IA
-                ai_result = classifier.classify_email(parsed)
+                # Filtros personalizados por remetente (bloqueio/VIP) antes da IA
+                sender_rule = classify_sender(parsed["sender_email"])
+                if sender_rule == "block":
+                    await log_svc.log_email_ignored(message_id, parsed["sender_email"], "remetente_bloqueado")
+                    await savepoint.commit()
+                    await _safe_mark_as_read(reader, message_id)
+                    stats["emails_ignored"] += 1
+                    continue
 
-                # Marcar como lido no Outlook
-                try:
-                    await reader.mark_as_read(message_id)
-                except Exception:
-                    pass
+                # Classificar com IA (chamada síncrona do SDK → thread para não bloquear o loop)
+                ai_result = await asyncio.to_thread(classifier.classify_email, parsed)
+                if sender_rule == "vip":
+                    ai_result = apply_vip_boost(ai_result)
 
                 if ai_result.get("is_spam"):
                     await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
+                    await savepoint.commit()
+                    await _safe_mark_as_read(reader, message_id)
                     stats["emails_ignored"] += 1
                     continue
 
@@ -111,6 +190,8 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         attachments_data = await att_handler.save_attachments(parsed, raw_attachments)
                     except Exception as e:
                         logger.warning("attachment_processing_failed", error=str(e))
+                    if settings.ENABLE_ATTACHMENT_AI:
+                        await _enrich_attachments(classifier, attachments_data)
 
                 # Mapeamento de prioridade
                 priority_map = {
@@ -159,6 +240,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                         file_type=att["file_type"],
                         ocr_text=att.get("ocr_text", ""),
                         pdf_text=att.get("pdf_text", ""),
+                        ai_summary=att.get("ai_summary", ""),
                         invoice_data=att.get("invoice_data", {}),
                     )
                     db.add(att_record)
@@ -207,11 +289,22 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     ai_result.get("priority", ""),
                     duration_ms,
                 )
+                await savepoint.commit()
+                # Só marca como lido após processar com sucesso — se falhar,
+                # o e-mail continua não lido e é reprocessado no próximo ciclo.
+                await _safe_mark_as_read(reader, message_id)
                 stats["emails_processed"] += 1
 
             except Exception as e:
-                logger.error("email_processing_error", error=str(e))
+                await savepoint.rollback()
                 stats["errors"] += 1
+                try:
+                    await log_svc.log_error(
+                        "email_processing_error", type(e).__name__, str(e),
+                        {"message_id": message_id},
+                    )
+                except Exception:
+                    logger.error("email_processing_error", error=str(e), message_id=message_id)
 
         await db.commit()
 
@@ -237,7 +330,7 @@ def send_daily_summary() -> Dict[str, Any]:
 
 
 async def _send_daily_summary_async() -> Dict[str, Any]:
-    from app.db.database import AsyncSessionLocal
+    from app.db.database import worker_session
     from app.models.email import EmailRecord, PriorityLevel
     from app.models.email import EmailAttachment
     from app.models.notification import NotificationLog, NotificationStatus
@@ -247,7 +340,7 @@ async def _send_daily_summary_async() -> Dict[str, Any]:
 
     today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
 
-    async with AsyncSessionLocal() as db:
+    async with worker_session() as db:
         total = (await db.execute(
             select(func.count(EmailRecord.id)).where(EmailRecord.processed_at >= today_start)
         )).scalar() or 0
@@ -316,7 +409,7 @@ def retry_failed_notifications() -> Dict[str, Any]:
 
 
 async def _retry_failed_async() -> Dict[str, Any]:
-    from app.db.database import AsyncSessionLocal
+    from app.db.database import worker_session
     from app.models.notification import NotificationLog, NotificationStatus
     from app.models.email import EmailRecord
     from app.services.whatsapp_sender import WhatsAppSender
@@ -327,7 +420,7 @@ async def _retry_failed_async() -> Dict[str, Any]:
     today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
     retried = 0
 
-    async with AsyncSessionLocal() as db:
+    async with worker_session() as db:
         failed = (await db.execute(
             select(NotificationLog).where(
                 NotificationLog.status == NotificationStatus.FAILED,
@@ -363,14 +456,14 @@ def cleanup_old_logs() -> Dict[str, Any]:
 
 
 async def _cleanup_async() -> Dict[str, Any]:
-    from app.db.database import AsyncSessionLocal
+    from app.db.database import worker_session
     from app.models.notification import ProcessingLog
     from app.config import settings
     from sqlalchemy import delete
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.LOG_RETENTION_DAYS)
 
-    async with AsyncSessionLocal() as db:
+    async with worker_session() as db:
         result = await db.execute(
             delete(ProcessingLog).where(ProcessingLog.timestamp < cutoff)
         )

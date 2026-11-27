@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = Field(default="production", description="development | production")
     DEBUG: bool = False
     LOG_LEVEL: str = Field(default="INFO", description="DEBUG | INFO | WARNING | ERROR")
+    TIMEZONE: str = Field(default="America/Sao_Paulo", description="Fuso para horários exibidos")
 
     # -------------------------------------------------------------------------
     # Segurança
@@ -154,6 +155,10 @@ class Settings(BaseSettings):
         default="/app/attachments",
         description="Caminho base para salvar anexos",
     )
+    ENABLE_ATTACHMENT_AI: bool = Field(
+        default=True,
+        description="Resumir PDFs/imagens e extrair dados de boletos/NF com IA",
+    )
     MAX_ATTACHMENT_SIZE_MB: int = Field(
         default=25,
         description="Tamanho máximo de anexo em MB",
@@ -266,6 +271,14 @@ class Settings(BaseSettings):
         "out of office",
         "ausente",
     ]
+
+    # -------------------------------------------------------------------------
+    # Filtros personalizados por remetente
+    # Aceita endereço completo (ceo@empresa.com), domínio (empresa.com) ou @dominio.
+    # Em .env use JSON: VIP_SENDERS=["ceo@empresa.com","@bancoparceiro.com.br"]
+    # -------------------------------------------------------------------------
+    VIP_SENDERS: List[str] = []
+    BLOCKED_SENDERS: List[str] = []
 
     # -------------------------------------------------------------------------
     # CORS

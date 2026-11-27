@@ -4,6 +4,7 @@ Suporta Twilio e Meta (WhatsApp Business API direta).
 """
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 import structlog
@@ -11,6 +12,8 @@ import structlog
 from app.config import settings
 
 logger = structlog.get_logger(__name__)
+
+PRIORITY_DISPLAY = {"CRITICO": "CRÍTICO", "ALTO": "ALTO", "MEDIO": "MÉDIO", "BAIXO": "BAIXO"}
 
 PRIORITY_LABELS = {
     "CRITICO": "🔴 CRÍTICO",
@@ -38,9 +41,9 @@ class WhatsAppSender:
 
         received_at: Optional[datetime] = email_data.get("received_at")
         if isinstance(received_at, datetime):
-            horario = received_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+            horario = received_at.astimezone(ZoneInfo(settings.TIMEZONE)).strftime("%d/%m/%Y %H:%M")
         else:
-            horario = datetime.now().strftime("%d/%m/%Y %H:%M")
+            horario = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%d/%m/%Y %H:%M")
 
         subject = email_data.get("subject", "(Sem assunto)")
         summary = ai_result.get("summary", email_data.get("body_preview", ""))[:400]
@@ -51,7 +54,7 @@ class WhatsAppSender:
         category = ai_result.get("category", "Geral")
 
         lines = [
-            f"[{priority_raw}]",
+            f"[{PRIORITY_DISPLAY.get(priority_raw, priority_raw)}]",
             "Novo e-mail importante recebido",
             "",
             f"Remetente: {remetente}",
@@ -66,9 +69,13 @@ class WhatsAppSender:
         if action_required and action_desc:
             lines += ["", f"Ação necessária: {action_desc}"]
 
-        if has_attachments:
-            count_str = f"{attachment_count} arquivo(s)" if attachment_count else "arquivos"
-            lines += ["", f"Anexos: {count_str}"]
+        if attachment_count:
+            count_str = f"{attachment_count} arquivo" + ("s" if attachment_count > 1 else "")
+        elif has_attachments:
+            count_str = "sim (não salvos — verifique o e-mail)"
+        else:
+            count_str = "nenhum"
+        lines += ["", f"Anexos: {count_str}"]
 
         return "\n".join(lines)
 
