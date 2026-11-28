@@ -13,11 +13,20 @@ from app.config import settings
 logger = structlog.get_logger(__name__)
 
 PRIORITY_LABELS = {
-    "CRITICO": "🔴 CRÍTICO",
-    "ALTO": "🟠 ALTO",
-    "MEDIO": "🟡 MÉDIO",
-    "BAIXO": "🟢 BAIXO",
+    "CRITICO": "CRÍTICO",
+    "ALTO": "ALTO",
+    "MEDIO": "MÉDIO",
+    "BAIXO": "BAIXO",
 }
+
+
+def _local_tz():
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(settings.TIMEZONE)
+    except Exception:
+        return timezone.utc
 
 
 class WhatsAppSender:
@@ -30,7 +39,7 @@ class WhatsAppSender:
     def format_message(self, email_data: Dict[str, Any], ai_result: Dict[str, Any]) -> str:
         """Formata a mensagem de notificação no padrão corporativo."""
         priority_raw = ai_result.get("priority", "BAIXO")
-        priority_label = PRIORITY_LABELS.get(priority_raw, f"[{priority_raw}]")
+        priority_label = PRIORITY_LABELS.get(priority_raw, priority_raw)
 
         sender_name = email_data.get("sender_name", "")
         sender_email = email_data.get("sender_email", "")
@@ -38,9 +47,9 @@ class WhatsAppSender:
 
         received_at: Optional[datetime] = email_data.get("received_at")
         if isinstance(received_at, datetime):
-            horario = received_at.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
+            horario = received_at.astimezone(_local_tz()).strftime("%d/%m/%Y %H:%M")
         else:
-            horario = datetime.now().strftime("%d/%m/%Y %H:%M")
+            horario = datetime.now(_local_tz()).strftime("%d/%m/%Y %H:%M")
 
         subject = email_data.get("subject", "(Sem assunto)")
         summary = ai_result.get("summary", email_data.get("body_preview", ""))[:400]
@@ -51,7 +60,7 @@ class WhatsAppSender:
         category = ai_result.get("category", "Geral")
 
         lines = [
-            f"[{priority_raw}]",
+            f"[{priority_label}]",
             "Novo e-mail importante recebido",
             "",
             f"Remetente: {remetente}",
@@ -66,9 +75,13 @@ class WhatsAppSender:
         if action_required and action_desc:
             lines += ["", f"Ação necessária: {action_desc}"]
 
-        if has_attachments:
-            count_str = f"{attachment_count} arquivo(s)" if attachment_count else "arquivos"
-            lines += ["", f"Anexos: {count_str}"]
+        if attachment_count:
+            count_str = f"{attachment_count} arquivo{'s' if attachment_count > 1 else ''}"
+        elif has_attachments:
+            count_str = "sim (nenhum salvo — bloqueado ou fora dos tipos permitidos)"
+        else:
+            count_str = "nenhum"
+        lines += ["", f"Anexos: {count_str}"]
 
         return "\n".join(lines)
 

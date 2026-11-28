@@ -33,8 +33,10 @@ yarn-error.log*
 *.log
 
 # ─── Dados gerados ───────────────────────────────────────────
-attachments/
-logs/
+/attachments/
+/Emails_Importantes/
+/logs/
+/backend/logs/
 *.sqlite3
 *.db
 
@@ -48,3 +50,5 @@ Thumbs.db
 
 # ─── Alembic ─────────────────────────────────────────────────
 alembic/versions/*.py
+tsconfig.tsbuildinfo
+*.tsbuildinfo

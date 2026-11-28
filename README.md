@@ -142,15 +142,14 @@ POST /api/settings/trigger-summary # Enviar resumo diário
 ## Organização de Anexos
 
 ```
-/app/attachments/
-└── Emails_Importantes/
-    └── 2026/
-        └── 05/
-            └── 27/
-                └── Financeiro_Empresa/
-                    ├── boleto_maio_2026.pdf
-                    ├── contrato_fornecedor_abc6f2.docx
-                    └── nf_12345.xml
+/Emails_Importantes/
+└── 2026/
+    └── 05/
+        └── 26/
+            └── Fornecedor_X/
+                ├── boleto_maio_2026.pdf
+                ├── boleto_maio_2026_abc6f2.pdf   # duplicado renomeado
+                └── nf_12345.xml
 ```
 
 ## Prioridades
@@ -184,11 +183,26 @@ docker compose up -d --scale celery-worker=3
 open http://localhost:5555
 ```
 
+## Arquitetura detalhada e fluxograma
+
+Veja [docs/ARQUITETURA.md](docs/ARQUITETURA.md) para os diagramas de componentes e o fluxograma operacional completo.
+
+## Testes
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest -q
+```
+
+Os testes cobrem: cache e expiração do token MSAL, a estrutura de pastas `/Emails_Importantes/AAAA/MM/DD/Remetente/` sem duplicidade, o bloqueio de anexos maliciosos, a extração de boleto/NF-e, a proteção contra XXE, o formato exato da mensagem de WhatsApp, o fallback de classificação por palavras-chave e a proteção da API por chave.
+
 ## Segurança e LGPD
 
+- **Controle de acesso:** defina `API_ACCESS_KEY` (`openssl rand -hex 32`). Todas as rotas `/api/*`, exceto `/api/health`, exigem o header `X-API-Key`. No painel, informe a chave em **Configurações**.
 - Credenciais criptografadas com Fernet (AES-128-CBC + HMAC-SHA256)
 - Tokens JWT com expiração configurável
-- Validação de tipos de arquivo (bloqueio de executáveis)
+- Validação de anexos: lista de extensões permitidas, bloqueio de dupla extensão, detecção de executáveis por assinatura binária e proteção contra XXE em XML
 - Logs de auditoria completos com retenção configurável
 - Sem armazenamento de senhas em texto plano
 - Conexões PostgreSQL com pool e timeout
@@ -205,6 +219,8 @@ WHATSAPP_TO_NUMBER         # Seu número WhatsApp
 TWILIO_ACCOUNT_SID         # Twilio Account SID
 TWILIO_AUTH_TOKEN          # Twilio Auth Token
 WHATSAPP_PHONE_NUMBER      # Número Twilio WhatsApp
+API_ACCESS_KEY             # Chave de acesso à API/painel (header X-API-Key)
+TIMEZONE                   # Fuso exibido nas notificações (padrão America/Sao_Paulo)
 ```
 
 ## Tecnologias

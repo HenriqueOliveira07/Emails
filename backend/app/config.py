@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     ENVIRONMENT: str = Field(default="production", description="development | production")
     DEBUG: bool = False
+    TIMEZONE: str = Field(default="America/Sao_Paulo", description="Fuso horário exibido nas notificações")
     LOG_LEVEL: str = Field(default="INFO", description="DEBUG | INFO | WARNING | ERROR")
 
     # -------------------------------------------------------------------------
@@ -37,6 +38,10 @@ class Settings(BaseSettings):
         description="Chave Fernet base64 para criptografia de credenciais",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    API_ACCESS_KEY: str = Field(
+        default="",
+        description="Chave exigida no header X-API-Key para acessar a API (vazio = desativado, apenas dev)",
+    )
 
     # -------------------------------------------------------------------------
     # Banco de Dados PostgreSQL
@@ -126,7 +131,7 @@ class Settings(BaseSettings):
         description="Chave da API da Anthropic (Claude)",
     )
     CLAUDE_MODEL: str = Field(
-        default="claude-sonnet-4-6",
+        default="claude-sonnet-5-5",
         description="Modelo Claude a usar para classificação",
     )
     CLAUDE_MAX_TOKENS: int = 1024
@@ -151,7 +156,7 @@ class Settings(BaseSettings):
         description="Número máximo de e-mails processados por ciclo",
     )
     ATTACHMENTS_BASE_PATH: str = Field(
-        default="/app/attachments",
+        default="/Emails_Importantes",
         description="Caminho base para salvar anexos",
     )
     MAX_ATTACHMENT_SIZE_MB: int = Field(

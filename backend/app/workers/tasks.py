@@ -14,11 +14,25 @@ logger = structlog.get_logger(__name__)
 
 
 def run_async(coro):
-    """Executa coroutine em contexto síncrono do Celery."""
+    """
+    Executa coroutine em contexto síncrono do Celery.
+
+    Cada tarefa usa um event loop novo; as conexões asyncpg do pool ficam
+    presas ao loop que as criou, então o pool é descartado ao final para que
+    a próxima execução não reutilize conexões de um loop já fechado.
+    """
+    from app.db.database import engine
+
+    async def _runner():
+        try:
+            return await coro
+        finally:
+            await engine.dispose()
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        return loop.run_until_complete(coro)
+        return loop.run_until_complete(_runner())
     finally:
         loop.close()
 
@@ -69,6 +83,14 @@ async def _check_new_emails_async() -> Dict[str, Any]:
         raw_emails = await reader.get_new_emails(max_emails=settings.MAX_EMAILS_PER_BATCH)
     except Exception as e:
         logger.error("email_fetch_failed", error=str(e))
+        try:
+            async with AsyncSessionLocal() as err_db:
+                await LogService(err_db).log_error(
+                    "outlook_fetch", type(e).__name__, str(e), {"integration": "microsoft_graph"}
+                )
+                await err_db.commit()
+        except Exception:
+            logger.exception("log_persist_failed")
         await reader.close()
         await whatsapp.close()
         return {"error": str(e), **stats}
@@ -78,6 +100,8 @@ async def _check_new_emails_async() -> Dict[str, Any]:
 
         for raw in raw_emails:
             email_start = time.monotonic()
+            savepoint = await db.begin_nested()
+            parsed: Dict[str, Any] = {}
             try:
                 parsed = reader.parse_email(raw)
                 message_id = parsed["message_id"]
@@ -87,6 +111,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     select(EmailRecord).where(EmailRecord.message_id == message_id)
                 )
                 if existing.scalar_one_or_none():
+                    await savepoint.commit()
                     continue
 
                 # Classificar com IA
@@ -101,6 +126,7 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                 if ai_result.get("is_spam"):
                     await log_svc.log_email_ignored(message_id, parsed["sender_email"], "spam")
                     stats["emails_ignored"] += 1
+                    await savepoint.commit()
                     continue
 
                 # Processar anexos
@@ -208,10 +234,20 @@ async def _check_new_emails_async() -> Dict[str, Any]:
                     duration_ms,
                 )
                 stats["emails_processed"] += 1
+                await savepoint.commit()
 
             except Exception as e:
+                # Desfaz apenas o e-mail com falha; os demais do lote são preservados
+                if savepoint.is_active:
+                    await savepoint.rollback()
                 logger.error("email_processing_error", error=str(e))
                 stats["errors"] += 1
+                await log_svc.log_error(
+                    "email_processing",
+                    type(e).__name__,
+                    str(e),
+                    {"message_id": parsed.get("message_id", ""), "sender": parsed.get("sender_email", "")},
+                )
 
         await db.commit()
 

@@ -21,8 +21,23 @@ logger = structlog.get_logger(__name__)
 ALLOWED_EXTENSIONS = {
     ".pdf", ".xlsx", ".xls", ".docx", ".doc",
     ".csv", ".zip", ".jpg", ".jpeg", ".png",
-    ".gif", ".xml", ".txt",
+    ".gif", ".xml", ".txt", ".webp", ".bmp", ".tif", ".tiff",
 }
+
+# Assinaturas binárias de executáveis — bloqueadas mesmo com extensão "inocente"
+EXECUTABLE_SIGNATURES = (
+    b"MZ",          # Windows PE (.exe/.dll)
+    b"\x7fELF",     # Linux ELF
+    b"\xca\xfe\xba\xbe",  # Mach-O universal / Java class
+    b"\xcf\xfa\xed\xfe",  # Mach-O 64
+)
+
+# Padrões de documentos fiscais brasileiros
+RE_NFE_KEY = re.compile(r"(?<!\d)(\d{4}\s?){11}(?!\d)")
+RE_BOLETO = re.compile(r"\d{5}\.?\d{5}\s?\d{5}\.?\d{6}\s?\d{5}\.?\d{6}\s?\d\s?\d{14}")
+RE_CNPJ = re.compile(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}")
+RE_VALOR = re.compile(r"R\$\s?(\d{1,3}(?:\.\d{3})*,\d{2})")
+RE_VENCIMENTO = re.compile(r"vencimento[:\s]*(\d{2}/\d{2}/\d{4})", re.IGNORECASE)
 
 DANGEROUS_EXTENSIONS = {
     ".exe", ".bat", ".cmd", ".sh", ".ps1", ".vbs",
@@ -61,7 +76,7 @@ class AttachmentHandler:
     def _sanitize_dirname(name: str) -> str:
         """Remove caracteres inválidos de nomes de diretório."""
         safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
-        safe = safe.strip(". ")
+        safe = re.sub(r"\s+", "_", safe.strip(". "))
         return safe[:80] or "desconhecido"
 
     @staticmethod
@@ -88,11 +103,72 @@ class AttachmentHandler:
         return new_name
 
     def _is_extension_allowed(self, filename: str) -> Tuple[bool, str]:
-        """Verifica se a extensão é permitida e não é perigosa."""
-        ext = Path(filename).suffix.lower()
-        if ext in DANGEROUS_EXTENSIONS:
+        """Verifica se a extensão está na lista permitida e não é perigosa."""
+        name = filename.lower()
+        ext = Path(name).suffix
+        # Dupla extensão (ex.: fatura.pdf.exe) também é bloqueada
+        if ext in DANGEROUS_EXTENSIONS or any(f"{d}." in name for d in DANGEROUS_EXTENSIONS):
             return False, f"Extensão perigosa: {ext}"
+        if ext not in ALLOWED_EXTENSIONS:
+            return False, f"Tipo não permitido: {ext or 'sem extensão'}"
         return True, ""
+
+    @staticmethod
+    def _looks_executable(content: bytes) -> bool:
+        """Detecta executáveis disfarçados pela assinatura binária (magic bytes)."""
+        return any(content.startswith(sig) for sig in EXECUTABLE_SIGNATURES)
+
+    @staticmethod
+    def extract_invoice_data(text: str) -> Dict[str, Any]:
+        """Extrai dados de boletos / notas fiscais de texto (PDF, OCR ou XML)."""
+        if not text:
+            return {}
+        data: Dict[str, Any] = {}
+        compact = re.sub(r"\s+", " ", text)
+        if m := RE_BOLETO.search(compact):
+            data["linha_digitavel"] = re.sub(r"\D", "", m.group(0))
+        if m := RE_NFE_KEY.search(compact):
+            key = re.sub(r"\D", "", m.group(0))
+            if len(key) == 44:
+                data["chave_nfe"] = key
+        cnpjs = list(dict.fromkeys(RE_CNPJ.findall(compact)))
+        if cnpjs:
+            data["cnpjs"] = cnpjs[:5]
+        valores = RE_VALOR.findall(compact)
+        if valores:
+            data["valores"] = valores[:5]
+        if m := RE_VENCIMENTO.search(compact):
+            data["vencimento"] = m.group(1)
+        return data
+
+    @staticmethod
+    def _parse_nfe_xml(file_path: Path) -> Dict[str, Any]:
+        """Extrai campos principais de um XML de NF-e (sem resolver entidades externas)."""
+        try:
+            import xml.etree.ElementTree as ET
+
+            raw = file_path.read_bytes()
+            if b"<!DOCTYPE" in raw or b"<!ENTITY" in raw:
+                return {}  # proteção contra XXE / billion laughs
+            root = ET.fromstring(raw)
+
+            def find(tag: str) -> str:
+                el = next((e for e in root.iter() if e.tag.split("}")[-1] == tag), None)
+                return (el.text or "").strip() if el is not None else ""
+
+            inf = next((e for e in root.iter() if e.tag.split("}")[-1] == "infNFe"), None)
+            data = {
+                "chave_nfe": (inf.get("Id", "") if inf is not None else "").replace("NFe", ""),
+                "numero": find("nNF"),
+                "emitente_cnpj": find("CNPJ"),
+                "emitente_nome": find("xNome"),
+                "valor_total": find("vNF"),
+                "data_emissao": find("dhEmi"),
+            }
+            return {k: v for k, v in data.items() if v}
+        except Exception as e:
+            logger.warning("nfe_xml_parse_failed", path=str(file_path), error=str(e))
+            return {}
 
     def _get_content_bytes(self, attachment: Dict[str, Any]) -> Optional[bytes]:
         """Extrai o conteúdo binário de um anexo da Graph API."""
@@ -138,6 +214,10 @@ class AttachmentHandler:
                 logger.warning("attachment_blocked", filename=original_name, reason=reason)
                 continue
 
+            if self._looks_executable(content):
+                logger.warning("attachment_blocked", filename=original_name, reason="executável disfarçado")
+                continue
+
             safe_name = self._sanitize_filename(original_name)
             unique_name = self._unique_filename(dest_dir, safe_name)
             file_path = dest_dir / unique_name
@@ -152,8 +232,12 @@ class AttachmentHandler:
 
             if ext == ".pdf":
                 pdf_text = self._extract_pdf_text(file_path)
-            elif ext in {".jpg", ".jpeg", ".png", ".gif"}:
+                invoice_data = self.extract_invoice_data(pdf_text)
+            elif ext in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff"}:
                 ocr_text = self._ocr_image(file_path)
+                invoice_data = self.extract_invoice_data(ocr_text)
+            elif ext == ".xml":
+                invoice_data = self._parse_nfe_xml(file_path)
 
             logger.info(
                 "attachment_saved",
